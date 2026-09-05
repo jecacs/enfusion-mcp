@@ -10,7 +10,6 @@ def test_distribution_version_is_available() -> None:
 
 def test_scaffold_cli_never_writes_to_stdout(capsys: object) -> None:
     assert main() == 2
-    # Deliberately avoid depending on pytest's capture protocol in the annotation.
     captured = capsys.readouterr()  # type: ignore[attr-defined]
     assert captured.out == ""
-    assert "not implemented" in captured.err
+    assert "refusing unsafe startup" in captured.err

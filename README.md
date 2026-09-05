@@ -5,9 +5,10 @@ Enfusion Workbench. The server runtime is native Python on Linux; Workbench is
 started manually through Steam/Proton and is contacted only through its loopback
 NET API. Version 1 exposes STDIO only.
 
-The project is currently pre-release. Checkpoint A establishes the audited
-architecture and packaging boundary; the operational server arrives in the
-following checkpoints.
+The project is currently pre-release. Checkpoint B provides the strict platform,
+NET API, shared-ledger/lock foundation, and exact five-tool STDIO surface.
+Deterministic planning and coordinated apply arrive at Checkpoint C. Until then
+the unverified production catalog is empty and plan/apply fail closed.
 
 ## Non-negotiable safety boundary
 
@@ -49,4 +50,6 @@ npm, JavaScript, or TypeScript runtime.
 See [Architecture](docs/ARCHITECTURE.md), [Threat model](docs/THREAT_MODEL.md),
 [prompt review](docs/PROMPT_REVIEW.md), [reference audit](docs/REFERENCE_AUDIT.md),
 [MCP SDK baseline](docs/MCP_SDK_BASELINE.md), and
-[implementation plan](docs/IMPLEMENTATION_PLAN.md).
+[implementation plan](docs/IMPLEMENTATION_PLAN.md). Runtime details are in
+[safe mode](docs/SECURITY_SAFE_MODE.md), [NET API](docs/NET_API_PROTOCOL.md),
+[Linux/Proton](docs/LINUX_PROTON.md), and [multi-process coordination](docs/MULTI_AGENT.md).
