@@ -56,4 +56,3 @@ allows the four read-oriented tools according to local policy.
 The server does not protect Workbench from another same-user process that calls
 NET API directly, from manual user edits, from an owner modifying SQLite/source,
 or from other pre-existing handlers. NET API client ID is not a credential.
-

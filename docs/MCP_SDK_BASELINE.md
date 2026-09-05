@@ -31,4 +31,3 @@ Uvicorn, HTTPX, SSE, JWT, and crypto as mandatory upstream dependencies. The
 application does not import or expose those transports; version 1 explicitly
 invokes STDIO only. This larger dependency tree is a known cost of using the
 official stable SDK, not an application HTTP server.
-

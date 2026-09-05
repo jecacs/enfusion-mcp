@@ -35,4 +35,3 @@
 
 No checkpoint in this plan reads or writes the active map, starts Workbench or
 Steam, changes Proton, probes port 5775, or installs bridge files.
-

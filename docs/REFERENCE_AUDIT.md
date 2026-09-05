@@ -162,4 +162,3 @@ Old handlers also serialize primitive arrays with `StoreString("", ...)`
 (`EMCP_WB_GetState.c:47-54`, `EMCP_WB_Localization.c:77`); no `ItemString`
 pattern was found. New contract checks must inspect actual staged handler source
 and must not use the old pattern as proof of correctness.
-

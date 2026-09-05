@@ -108,4 +108,3 @@ The reproducible source of dependency versions and hashes is `uv.lock`.
 - Source/reference findings: `STATIC_VERIFIED`.
 - Python scaffold build/type/test: `PYTHON_SIMULATED`.
 - Enforce compilation and all live Workbench claims: `UNVERIFIED_LIVE`.
-

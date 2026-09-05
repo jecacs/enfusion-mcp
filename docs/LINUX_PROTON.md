@@ -50,4 +50,3 @@ Checkpoint A–C tests create synthetic prefixes and `dosdevices` symlinks under
 pytest temporary directories. They do not read the configured real Proton
 prefix, either copy of the map, Workbench executable, or port 5775. Real mapping
 inspection belongs only to the later permissioned installation/live stage.
-

@@ -95,4 +95,3 @@ to point the CLI at a random fake port. Instead the composed boundary is proven
 in layers: MCP raw-invalid-argument tests show the service is never called, and
 NET-client invalid-request tests show zero fake TCP connections. This proves the
 same no-connection property without binding the forbidden production port.
-

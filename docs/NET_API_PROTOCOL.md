@@ -72,4 +72,3 @@ key and must not send create again.
 
 Tests use literal golden byte frames and fake servers bound to
 `127.0.0.1:0`. They never address port 5775.
-
