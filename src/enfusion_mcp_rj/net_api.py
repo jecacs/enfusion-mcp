@@ -308,6 +308,12 @@ class NetApiClient:
         self._client_id = client_id
         self._timeouts = timeouts or NetApiTimeouts()
 
+    @property
+    def workbench_address(self) -> tuple[str, int]:
+        """Return the immutable TCP target used by this client."""
+
+        return (self._host, self._port)
+
     async def call(
         self,
         api_func: str,

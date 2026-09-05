@@ -99,6 +99,11 @@ def test_canonical_plan_json_and_digest_are_stable_utf8() -> None:
     assert len(plan_digest(first)) == 64
 
 
+def test_canonical_plan_json_rejects_lone_unicode_surrogate() -> None:
+    with pytest.raises(PlanValidationError, match="not finite JSON"):
+        canonical_plan_json({"name": "\ud800"})
+
+
 @pytest.mark.parametrize(
     "invalid",
     [

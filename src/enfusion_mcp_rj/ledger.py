@@ -97,6 +97,7 @@ _ALLOWED_TRANSITIONS: Final[dict[OperationState, frozenset[OperationState]]] = {
     OperationState.SENDING: frozenset(
         {
             OperationState.UNKNOWN,
+            OperationState.PRE_SEND_FAILED,
             OperationState.APPLIED,
             OperationState.PARTIAL,
             OperationState.ENTITY_CONFLICT,
@@ -185,9 +186,10 @@ def canonical_plan_json(plan: object) -> str:
             separators=(",", ":"),
             sort_keys=True,
         )
-    except (TypeError, ValueError) as exc:
+        encoded_bytes = encoded.encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise PlanValidationError(f"plan is not finite JSON: {exc}") from exc
-    if len(encoded.encode("utf-8")) > MAX_PLAN_JSON_BYTES:
+    if len(encoded_bytes) > MAX_PLAN_JSON_BYTES:
         raise PlanValidationError("canonical plan exceeds the ledger size limit")
     return encoded
 
@@ -383,6 +385,15 @@ class Ledger:
         if row is None:
             raise PlanNotFoundError(f"unknown plan_id: {plan_id}")
         return _plan_from_row(row)
+
+    def count_plans(self) -> int:
+        """Return the durable plan count without modifying ledger state."""
+
+        with self._connection() as connection:
+            row = connection.execute("SELECT COUNT(*) AS count FROM plans").fetchone()
+        if row is None:  # pragma: no cover - SQLite aggregate contract guard
+            raise LedgerError("plan count could not be read")
+        return int(row["count"])
 
     def bind_operation(
         self,

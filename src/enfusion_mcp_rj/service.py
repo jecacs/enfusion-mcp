@@ -4,14 +4,26 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from uuid import UUID
 
+from pydantic import ValidationError
+
+from .bridge_models import (
+    BRIDGE_BUILD_ID,
+    BRIDGE_PROTOCOL_VERSION,
+    BridgeContextResponse,
+    BridgeTerrainSampleResponse,
+)
 from .catalog import PRODUCTION_CATALOG, VegetationCatalog
 from .config import ServerConfig
+from .coordinator import ApplyCoordinator, CoordinatorError, CoordinatorErrorCode
 from .ledger import Ledger
-from .locking import TargetLockManager, TargetScope
+from .locking import LockError, TargetLockManager, TargetScope
 from .models import (
+    BoundsXZ,
     ToolErrorInfo,
+    Vec3,
     VegetationApplyOutput,
     VegetationCatalogOutput,
     VegetationPlanInput,
@@ -27,6 +39,18 @@ from .net_api import (
     UnknownOutcomeError,
     WorkbenchApiError,
 )
+from .planner import (
+    ALGORITHM_VERSION,
+    CatalogValidationError,
+    PlannerError,
+    PlanningContext,
+    TerrainBounds,
+    TerrainContractError,
+    TerrainSample,
+    finalize_vegetation_plan,
+    prepare_vegetation_plan,
+    underfilled_output,
+)
 
 MANUAL_START_GUIDANCE = (
     "Start Arma Reforger Tools manually through Steam/Proton, open the intended project, "
@@ -34,6 +58,23 @@ MANUAL_START_GUIDANCE = (
 )
 MAX_ERROR_PAYLOAD_CHARS = 1024
 MAX_ERROR_MESSAGE_CHARS = 2048
+
+
+def _tool_error(
+    code: str,
+    message: str,
+    *,
+    retryable: bool = False,
+    unknown_outcome: bool = False,
+    **details: str | int | float | bool | None,
+) -> ToolErrorInfo:
+    return ToolErrorInfo(
+        code=code,
+        message=message[:MAX_ERROR_MESSAGE_CHARS],
+        retryable=retryable,
+        unknown_outcome=unknown_outcome,
+        details=details,
+    )
 
 
 def _typed_net_error(error: NetApiError) -> ToolErrorInfo:
@@ -102,16 +143,49 @@ class SafeRuntimeService:
         client: NetApiClient,
         *,
         catalog: VegetationCatalog = PRODUCTION_CATALOG,
-        ledger: Ledger | None = None,
-        lock_manager: TargetLockManager | None = None,
-        target_scope: TargetScope | None = None,
+        ledger: Ledger,
+        lock_manager: TargetLockManager,
+        target_scope: TargetScope,
     ) -> None:
+        try:
+            client_address = client.workbench_address
+        except AttributeError as error:
+            raise TypeError("client must expose its immutable Workbench address") from error
+        if client_address != config.workbench_address:
+            raise ValueError(
+                "NET API client target does not match the validated server configuration"
+            )
+        expected_state_dir = config.state_dir.path.resolve(strict=True)
+        if ledger.state_dir != expected_state_dir or lock_manager.state_dir != expected_state_dir:
+            raise ValueError(
+                "ledger and lock manager must use the configured shared state directory"
+            )
+        expected_scope = TargetScope.derive(
+            workbench_host=config.workbench_host,
+            workbench_port=config.workbench_port,
+            project_host_path=config.project_host_path.path,
+            project_engine_path=config.project_engine_path.value,
+            world=config.allowed_world.value,
+        )
+        if target_scope != expected_scope:
+            raise ValueError("target scope does not match the validated server configuration")
+        if type(catalog) is not VegetationCatalog:
+            raise TypeError("catalog must be an immutable VegetationCatalog")
         self._config = config
         self._client = client
         self._catalog = catalog
         self._ledger = ledger
         self._lock_manager = lock_manager
         self._target_scope = target_scope
+        self._coordinator = ApplyCoordinator(
+            ledger=ledger,
+            lock_manager=lock_manager,
+            target_scope=target_scope,
+            bridge=client,
+            expected_catalog_hash=catalog.catalog_hash,
+            expected_prefabs=frozenset(entry.resource_name for entry in catalog.entries),
+            expected_world_path=config.allowed_world.value,
+        )
 
     async def workbench_status(self) -> WorkbenchStatusOutput:
         successful_round_trips = 0
@@ -170,57 +244,161 @@ class SafeRuntimeService:
 
     async def world_context(self) -> WorldContextOutput:
         try:
-            payload = _object_payload(
-                await self._client.call("RJMCP_GetContext"),
-                "RJMCP_GetContext",
-            )
+            context = await self._fetch_context()
         except NetApiError as error:
             return WorldContextOutput(ok=False, error=_typed_net_error(error))
-        except ValueError as error:
+        except (ValidationError, ValueError) as error:
             return WorldContextOutput(
                 ok=False,
-                error=ToolErrorInfo(code="INVALID_RESPONSE", message=str(error)),
+                error=_tool_error("INVALID_RESPONSE", str(error)),
             )
-
-        # The complete, statically checked bridge mapping is added with the
-        # staged handler in Checkpoint C. Reject an unknown shape rather than
-        # passing arbitrary handler fields through to MCP clients.
-        world_path = payload.get("worldPath")
-        if not isinstance(world_path, str):
+        validation_error = self._validate_context_identity(context)
+        if validation_error is not None:
             return WorldContextOutput(
                 ok=False,
-                error=ToolErrorInfo(
-                    code="INVALID_RESPONSE",
-                    message="RJMCP_GetContext.worldPath must be a string",
+                world_path=context.world_path or None,
+                error=validation_error,
+            )
+        if context.status == "error":
+            return WorldContextOutput(
+                ok=False,
+                world_path=context.world_path or None,
+                error=_tool_error(
+                    context.error_code,
+                    context.message or "Workbench context handler returned an error",
                 ),
             )
-        if world_path != self._config.allowed_world.value:
-            return WorldContextOutput(
-                ok=False,
-                world_path=world_path,
-                error=ToolErrorInfo(
-                    code="WORLD_NOT_ALLOWED",
-                    message="Workbench has a world open that is not the configured allowed world",
-                ),
-            )
-        return WorldContextOutput(ok=True, world_path=world_path)
+        bounds = context.terrain_bounds
+        return WorldContextOutput(
+            ok=True,
+            world_path=context.world_path,
+            mode=context.mode,
+            subscene=context.current_subscene,
+            current_layer_id=context.current_layer_id,
+            active_layer_path=context.active_layer_path,
+            terrain_bounds=(
+                BoundsXZ(
+                    min_x=bounds.min_x,
+                    min_z=bounds.min_z,
+                    max_x=bounds.max_x,
+                    max_z=bounds.max_z,
+                )
+                if bounds is not None
+                else None
+            ),
+            selection_count=context.selection_count,
+            selected_name=context.selected_name or None,
+            selected_class=context.selected_class or None,
+            polygon_compatible=context.polygon_compatible,
+            shape_closed=context.shape_closed,
+            shape_points_world=[
+                Vec3(x=point.x, y=point.y, z=point.z) for point in context.shape_points_world
+            ],
+            bridge_protocol_version=context.bridge_protocol_version,
+            bridge_build_id=context.bridge_build_id,
+            catalog_hash=context.catalog_hash,
+        )
 
     async def vegetation_catalog(self) -> VegetationCatalogOutput:
         return self._catalog.as_output()
 
     async def vegetation_plan(self, request: VegetationPlanInput) -> VegetationPlanOutput:
-        return VegetationPlanOutput(
-            ok=False,
-            algorithm_version="pcg32-rj-v1-not-yet-enabled",
-            requested_count=request.count,
-            target_layer=request.target_layer,
-            error=ToolErrorInfo(
-                code="CATALOG_NOT_READY",
-                message=(
+        if not self._catalog.production_ready:
+            return VegetationPlanOutput(
+                ok=False,
+                algorithm_version=ALGORITHM_VERSION,
+                requested_count=request.count,
+                target_layer=request.target_layer,
+                error=_tool_error(
+                    "CATALOG_NOT_READY",
                     "Production vegetation allowlist is intentionally empty until exact resources "
-                    "can be proven without violating the active-project permission boundary."
+                    "can be proven without violating the active-project permission boundary.",
                 ),
-            ),
+            )
+        try:
+            async with self._lock_manager.shared(self._target_scope):
+                bridge_context = await self._fetch_context()
+                identity_error = self._validate_context_identity(bridge_context)
+                if identity_error is not None:
+                    raise PlannerError(identity_error.code, identity_error.message)
+                if bridge_context.status == "error":
+                    raise PlannerError(
+                        bridge_context.error_code,
+                        bridge_context.message or "Workbench context handler returned an error",
+                    )
+                planning_context = self._planning_context(bridge_context)
+                prepared = prepare_vegetation_plan(planning_context, request, self._catalog)
+                terrain_payload: dict[str, JsonValue] = {
+                    "points": [{"x": query.x, "z": query.z} for query in prepared.terrain_queries]
+                }
+                raw_terrain = await self._client.call("RJMCP_TerrainSample", terrain_payload)
+                terrain_response = BridgeTerrainSampleResponse.model_validate(raw_terrain)
+                if terrain_response.bridge_protocol_version != BRIDGE_PROTOCOL_VERSION:
+                    raise TerrainContractError(
+                        "BRIDGE_VERSION_MISMATCH",
+                        "Terrain handler protocol version does not match Python",
+                    )
+                if terrain_response.status == "error":
+                    raise TerrainContractError(
+                        terrain_response.error_code,
+                        terrain_response.message or "Terrain handler returned an error",
+                    )
+                samples = tuple(
+                    TerrainSample(
+                        requested_x=item.requested_x,
+                        requested_z=item.requested_z,
+                        has_terrain=item.has_terrain,
+                        terrain_y=item.terrain_y,
+                        normal_x=item.normal_x,
+                        normal_y=item.normal_y,
+                        normal_z=item.normal_z,
+                    )
+                    for item in terrain_response.results
+                )
+                plan = finalize_vegetation_plan(
+                    prepared,
+                    samples,
+                    created_at=datetime.now(tz=UTC),
+                )
+                persisted = self._ledger.store_plan(
+                    canonical_json=plan.canonical_json,
+                    created_at=plan.created_at,
+                    expires_at=plan.expires_at,
+                    plan_id=plan.plan_id,
+                )
+        except NetApiError as error:
+            return VegetationPlanOutput(
+                ok=False,
+                algorithm_version=ALGORITHM_VERSION,
+                requested_count=request.count,
+                target_layer=request.target_layer,
+                error=_typed_net_error(error),
+            )
+        except (PlannerError, CatalogValidationError, TerrainContractError) as error:
+            return underfilled_output(request, error)
+        except (ValidationError, ValueError) as error:
+            return VegetationPlanOutput(
+                ok=False,
+                algorithm_version=ALGORITHM_VERSION,
+                requested_count=request.count,
+                target_layer=request.target_layer,
+                error=_tool_error("INVALID_RESPONSE", str(error)),
+            )
+        except LockError as error:
+            return VegetationPlanOutput(
+                ok=False,
+                algorithm_version=ALGORITHM_VERSION,
+                requested_count=request.count,
+                target_layer=request.target_layer,
+                error=_tool_error("LOCK_FAILED", str(error)),
+            )
+
+        output = plan.as_output()
+        return output.model_copy(
+            update={
+                "created_at": persisted.created_at.isoformat(),
+                "expires_at": persisted.expires_at.isoformat(),
+            }
         )
 
     async def vegetation_apply(
@@ -228,15 +406,101 @@ class SafeRuntimeService:
         plan_id: str,
         idempotency_key: UUID,
     ) -> VegetationApplyOutput:
+        operation_id = str(idempotency_key)
+        if not self._catalog.production_ready:
+            return VegetationApplyOutput(
+                ok=False,
+                plan_id=plan_id,
+                operation_id=operation_id,
+                state="PRE_SEND_FAILED",
+                error=_tool_error(
+                    "CATALOG_NOT_READY",
+                    "Apply is fail-closed while the production catalog is unverified.",
+                ),
+            )
+        try:
+            result = await self._coordinator.apply(plan_id, operation_id)
+        except CoordinatorError as error:
+            return VegetationApplyOutput(
+                ok=False,
+                plan_id=plan_id,
+                operation_id=operation_id,
+                state="PRE_SEND_FAILED",
+                error=_tool_error(error.code.value, str(error)),
+            )
+        error_info = None
+        if not result.ok:
+            code = result.error_code or CoordinatorErrorCode.STATE_CONFLICT
+            code_text = code.value if isinstance(code, CoordinatorErrorCode) else code
+            error_info = _tool_error(
+                code_text,
+                result.message or code_text,
+                unknown_outcome=(
+                    result.state.value == "UNKNOWN"
+                    or code_text == CoordinatorErrorCode.UNKNOWN_OUTCOME.value
+                ),
+            )
         return VegetationApplyOutput(
-            ok=False,
-            plan_id=plan_id,
-            operation_id=str(idempotency_key),
-            state="PRE_SEND_FAILED",
-            error=ToolErrorInfo(
-                code="CATALOG_NOT_READY",
-                message="Apply is fail-closed while the production catalog is unverified.",
+            ok=result.ok,
+            plan_id=result.plan_id,
+            operation_id=result.operation_id,
+            state=result.state.value,
+            created_count=result.created_count,
+            reconciled=result.reconciled,
+            error=error_info,
+        )
+
+    async def _fetch_context(self) -> BridgeContextResponse:
+        payload = _object_payload(
+            await self._client.call("RJMCP_GetContext"),
+            "RJMCP_GetContext",
+        )
+        return BridgeContextResponse.model_validate(payload)
+
+    def _validate_context_identity(self, context: BridgeContextResponse) -> ToolErrorInfo | None:
+        if context.bridge_protocol_version != BRIDGE_PROTOCOL_VERSION:
+            return _tool_error("BRIDGE_VERSION_MISMATCH", "Bridge protocol version mismatch")
+        if context.bridge_build_id != BRIDGE_BUILD_ID:
+            return _tool_error("BRIDGE_BUILD_MISMATCH", "Bridge build ID mismatch")
+        if context.catalog_hash != self._catalog.catalog_hash:
+            return _tool_error("CATALOG_MISMATCH", "Python and bridge catalog hashes differ")
+        if context.status == "ok" and context.world_path != self._config.allowed_world.value:
+            return _tool_error(
+                "WORLD_NOT_ALLOWED",
+                "Workbench has a world open that is not the configured allowed world",
+            )
+        return None
+
+    @staticmethod
+    def _planning_context(context: BridgeContextResponse) -> PlanningContext:
+        bounds = context.terrain_bounds
+        if bounds is None:
+            raise PlannerError("TERRAIN_UNAVAILABLE", "Context did not return terrain bounds")
+        return PlanningContext(
+            world_path=context.world_path,
+            mode=context.mode,
+            current_subscene=context.current_subscene,
+            current_layer_id=context.current_layer_id,
+            active_layer_path=context.active_layer_path,
+            terrain_bounds=TerrainBounds(
+                min_x=bounds.min_x,
+                min_y=bounds.min_y,
+                min_z=bounds.min_z,
+                max_x=bounds.max_x,
+                max_y=bounds.max_y,
+                max_z=bounds.max_z,
             ),
+            selection_count=context.selection_count,
+            selected_name=context.selected_name,
+            selected_class=context.selected_class,
+            polygon_compatible=context.polygon_compatible,
+            shape_closed=context.shape_closed,
+            shape_points_world=tuple(
+                Vec3(x=point.x, y=point.y, z=point.z) for point in context.shape_points_world
+            ),
+            bridge_protocol_version=context.bridge_protocol_version,
+            bridge_build_id=context.bridge_build_id,
+            bridge_catalog_hash=context.catalog_hash,
         )
 
 

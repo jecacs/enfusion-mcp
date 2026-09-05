@@ -16,6 +16,14 @@ from enfusion_mcp_rj.config import (
 from enfusion_mcp_rj.path_types import EnginePath, HostPath, ResourceName
 
 
+class _StringSubclass(str):
+    pass
+
+
+class _IntegerSubclass(int):
+    pass
+
+
 @pytest.fixture
 def valid_environment(tmp_path: Path) -> Iterator[dict[str, str]]:
     prefix = tmp_path / "Proton Prefix"
@@ -71,6 +79,30 @@ def test_dataclass_replace_cannot_bypass_safe_runtime_invariants(
         replace(config, workbench_host="localhost")  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("platform_mode", _StringSubclass("native-linux-proton")),
+        ("steam_tools_app_id", 1_874_910.0),
+        ("steam_tools_app_id", _IntegerSubclass(1_874_910)),
+        ("workbench_host", _StringSubclass("127.0.0.1")),
+        ("workbench_port", 5_775.0),
+        ("workbench_port", _IntegerSubclass(5_775)),
+        ("safe_mode", 1),
+    ],
+)
+def test_direct_config_rejects_equal_values_with_wrong_builtin_type(
+    valid_environment: dict[str, str],
+    field: str,
+    value: object,
+) -> None:
+    config = ServerConfig.from_env(valid_environment)
+
+    with pytest.raises(ConfigurationError, match="safe profile requires exactly") as captured:
+        replace(config, **{field: value})  # type: ignore[arg-type]
+    assert captured.value.field == field
+
+
 @pytest.mark.parametrize("missing", REQUIRED_ENVIRONMENT)
 def test_every_required_environment_variable_is_fail_closed(
     valid_environment: dict[str, str],
@@ -91,6 +123,27 @@ def test_empty_environment_values_are_rejected(
 
     with pytest.raises(ConfigurationError, match="must not be empty"):
         ServerConfig.from_env(valid_environment)
+
+
+def test_unknown_enfusion_environment_variable_is_fail_closed(
+    valid_environment: dict[str, str],
+) -> None:
+    valid_environment["ENFUSION_WORKBENCH_HOTS"] = "127.0.0.1"
+    valid_environment["ENFUSION_UNSAFE_FUTURE_OPTION"] = "1"
+
+    with pytest.raises(ConfigurationError, match="unknown ENFUSION_") as captured:
+        ServerConfig.from_env(valid_environment)
+    assert captured.value.field == ("ENFUSION_UNSAFE_FUTURE_OPTION,ENFUSION_WORKBENCH_HOTS")
+
+
+def test_unrelated_process_environment_variables_remain_allowed(
+    valid_environment: dict[str, str],
+) -> None:
+    valid_environment["PATH"] = "/usr/bin"
+    valid_environment["HOME"] = "/synthetic/home"
+    valid_environment["CLAUDE_PROJECT_DIR"] = "/synthetic/project"
+
+    assert ServerConfig.from_env(valid_environment).safe_mode is True
 
 
 @pytest.mark.parametrize(

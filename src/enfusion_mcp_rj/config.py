@@ -48,6 +48,17 @@ class ConfigurationError(ValueError):
 
 
 def _required_values(environ: Mapping[str, str]) -> dict[str, str]:
+    supported = frozenset(REQUIRED_ENVIRONMENT)
+    unknown = sorted(
+        name
+        for name in environ
+        if type(name) is str and name.startswith("ENFUSION_") and name not in supported
+    )
+    if unknown:
+        raise ConfigurationError(
+            ",".join(unknown),
+            "unknown ENFUSION_ environment variable",
+        )
     missing = [name for name in REQUIRED_ENVIRONMENT if name not in environ]
     if missing:
         raise ConfigurationError(
@@ -147,15 +158,15 @@ class ServerConfig:
     state_dir: HostPath
 
     def __post_init__(self) -> None:  # noqa: PLR0912 - ordered fail-closed checks
-        exact_values: tuple[tuple[str, object, object], ...] = (
-            ("platform_mode", self.platform_mode, PLATFORM_MODE),
-            ("steam_tools_app_id", self.steam_tools_app_id, int(STEAM_TOOLS_APP_ID)),
-            ("workbench_host", self.workbench_host, WORKBENCH_HOST),
-            ("workbench_port", self.workbench_port, int(WORKBENCH_PORT)),
-            ("safe_mode", self.safe_mode, True),
+        exact_values: tuple[tuple[str, object, object, type[object]], ...] = (
+            ("platform_mode", self.platform_mode, PLATFORM_MODE, str),
+            ("steam_tools_app_id", self.steam_tools_app_id, int(STEAM_TOOLS_APP_ID), int),
+            ("workbench_host", self.workbench_host, WORKBENCH_HOST, str),
+            ("workbench_port", self.workbench_port, int(WORKBENCH_PORT), int),
+            ("safe_mode", self.safe_mode, True, bool),
         )
-        for field_name, actual, expected in exact_values:
-            if actual != expected or (field_name == "safe_mode" and actual is not True):
+        for field_name, actual, expected, expected_type in exact_values:
+            if type(actual) is not expected_type or actual != expected:
                 raise ConfigurationError(field_name, f"safe profile requires exactly {expected!r}")
         if type(self.proton_prefix) is not HostPath:
             raise ConfigurationError("proton_prefix", "must be a HostPath")

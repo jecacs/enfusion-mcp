@@ -7,6 +7,8 @@ from typing import cast
 import pytest
 
 from enfusion_mcp_rj.config import ServerConfig
+from enfusion_mcp_rj.ledger import Ledger
+from enfusion_mcp_rj.locking import TargetLockManager, TargetScope
 from enfusion_mcp_rj.net_api import (
     JsonValue,
     NetApiClient,
@@ -48,6 +50,10 @@ class FakeNetClient:
         self.outcomes = outcomes
         self.calls: list[tuple[str, Mapping[str, JsonValue] | None]] = []
 
+    @property
+    def workbench_address(self) -> tuple[str, int]:
+        return ("127.0.0.1", 5775)
+
     async def call(
         self,
         api_func: str,
@@ -62,7 +68,66 @@ class FakeNetClient:
 
 
 def service(client: FakeNetClient, tmp_path: Path) -> SafeRuntimeService:
-    return SafeRuntimeService(config(tmp_path), cast(NetApiClient, client))
+    server_config = config(tmp_path)
+    ledger = Ledger(server_config.state_dir.path, allowed_root=tmp_path)
+    lock_manager = TargetLockManager(server_config.state_dir.path, allowed_root=tmp_path)
+    scope = TargetScope.derive(
+        workbench_host=server_config.workbench_host,
+        workbench_port=server_config.workbench_port,
+        project_host_path=server_config.project_host_path.path,
+        project_engine_path=server_config.project_engine_path.value,
+        world=server_config.allowed_world.value,
+    )
+    return SafeRuntimeService(
+        server_config,
+        cast(NetApiClient, client),
+        ledger=ledger,
+        lock_manager=lock_manager,
+        target_scope=scope,
+    )
+
+
+def test_service_rejects_lock_scope_that_does_not_match_validated_config(tmp_path: Path) -> None:
+    server_config = config(tmp_path)
+    ledger = Ledger(server_config.state_dir.path, allowed_root=tmp_path)
+    lock_manager = TargetLockManager(server_config.state_dir.path, allowed_root=tmp_path)
+    wrong_scope = TargetScope.derive(
+        workbench_host=server_config.workbench_host,
+        workbench_port=server_config.workbench_port,
+        project_host_path=tmp_path / "different-project",
+        project_engine_path=r"Z:\different-project",
+        world=server_config.allowed_world.value,
+    )
+    with pytest.raises(ValueError, match="target scope"):
+        SafeRuntimeService(
+            server_config,
+            cast(NetApiClient, FakeNetClient([])),
+            ledger=ledger,
+            lock_manager=lock_manager,
+            target_scope=wrong_scope,
+        )
+
+
+def test_service_rejects_net_client_target_that_does_not_match_config(tmp_path: Path) -> None:
+    server_config = config(tmp_path)
+    ledger = Ledger(server_config.state_dir.path, allowed_root=tmp_path)
+    lock_manager = TargetLockManager(server_config.state_dir.path, allowed_root=tmp_path)
+    scope = TargetScope.derive(
+        workbench_host=server_config.workbench_host,
+        workbench_port=server_config.workbench_port,
+        project_host_path=server_config.project_host_path.path,
+        project_engine_path=server_config.project_engine_path.value,
+        world=server_config.allowed_world.value,
+    )
+
+    with pytest.raises(ValueError, match="client target"):
+        SafeRuntimeService(
+            server_config,
+            NetApiClient("127.0.0.1", 5774),
+            ledger=ledger,
+            lock_manager=lock_manager,
+            target_scope=scope,
+        )
 
 
 @pytest.mark.asyncio

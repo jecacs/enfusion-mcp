@@ -85,8 +85,8 @@ class BoundsXZ(StrictModel):
 class WorldContextOutput(StrictModel):
     ok: bool
     world_path: str | None = None
-    mode: str | None = None
-    subscene: str | None = None
+    mode: Literal["edit", "game", "prefab", "no_world_editor", "unknown"] | None = None
+    subscene: int | None = Field(default=None, ge=-1)
     current_layer_id: int | None = None
     active_layer_path: str | None = None
     terrain_bounds: BoundsXZ | None = None
@@ -95,10 +95,10 @@ class WorldContextOutput(StrictModel):
     selected_class: str | None = None
     polygon_compatible: bool | None = None
     shape_closed: bool | None = None
-    shape_points_world: list[Vec3] = Field(default_factory=list, max_length=4096)
+    shape_points_world: list[Vec3] = Field(default_factory=list, max_length=1024)
     bridge_protocol_version: str | None = None
     bridge_build_id: str | None = None
-    catalog_hash: str | None = None
+    catalog_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     error: ToolErrorInfo | None = None
 
     @model_validator(mode="after")

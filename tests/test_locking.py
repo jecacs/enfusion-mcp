@@ -61,11 +61,13 @@ def test_target_scope_is_stable_specific_and_never_leaks_input_into_filename(
 
     assert first == second
     assert first.digest != other_world.digest
+    assert first.endpoint_digest == other_world.endpoint_digest
     assert len(first.digest) == 64
-    assert first.lock_filename == f"target-{first.digest}.lock"
+    assert first.lock_filename == f"target-{first.endpoint_digest}.lock"
     assert "карта" not in first.lock_filename
     assert "$thenewRJ" not in first.lock_filename
     assert "projectHostPath" in first.canonical
+    assert "projectHostPath" not in first.endpoint_canonical
 
 
 @pytest.mark.parametrize(
@@ -132,6 +134,41 @@ def test_exclusive_file_lock_serializes_threads(tmp_path: Path) -> None:
 
     assert maximum_active == 1
     assert sorted(visits) == [0, 1, 2, 3]
+
+
+def test_same_workbench_endpoint_serializes_different_project_scopes(tmp_path: Path) -> None:
+    manager = TargetLockManager(tmp_path / "state", allowed_root=tmp_path)
+    first = _scope(tmp_path)
+    second = TargetScope.derive(
+        workbench_host="127.0.0.1",
+        workbench_port=5775,
+        project_host_path=tmp_path / "other-project",
+        project_engine_path=r"D:\other-project",
+        world="$other:world.ent",
+    )
+    assert first.digest != second.digest
+    assert manager.lock_path(first) == manager.lock_path(second)
+    guard = threading.Lock()
+    active = 0
+    maximum_active = 0
+
+    def worker(scope: TargetScope) -> None:
+        nonlocal active, maximum_active
+        with manager.sync_lock(scope, LockMode.EXCLUSIVE):
+            with guard:
+                active += 1
+                maximum_active = max(maximum_active, active)
+            time.sleep(0.03)
+            with guard:
+                active -= 1
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(worker, first)
+        second_future = executor.submit(worker, second)
+        first_future.result(timeout=5)
+        second_future.result(timeout=5)
+
+    assert maximum_active == 1
 
 
 def test_shared_file_locks_overlap_between_threads(tmp_path: Path) -> None:

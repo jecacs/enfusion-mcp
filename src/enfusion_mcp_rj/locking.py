@@ -51,15 +51,20 @@ class LockMode(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class TargetScope:
-    """Canonical target/project/world tuple and its filesystem-safe digest."""
+    """Full target identity plus an endpoint-global mutation lock identity."""
 
     canonical: str
     digest: str
+    endpoint_canonical: str
+    endpoint_digest: str
 
     def __post_init__(self) -> None:
         expected = hashlib.sha256(self.canonical.encode("utf-8")).hexdigest()
         if len(self.digest) != _DIGEST_LENGTH or self.digest != expected:
             raise ValueError("target scope digest does not match its canonical value")
+        expected_endpoint = hashlib.sha256(self.endpoint_canonical.encode("utf-8")).hexdigest()
+        if len(self.endpoint_digest) != _DIGEST_LENGTH or self.endpoint_digest != expected_endpoint:
+            raise ValueError("endpoint digest does not match its canonical value")
 
     @classmethod
     def derive(
@@ -97,16 +102,24 @@ class TargetScope:
             separators=(",", ":"),
             sort_keys=True,
         )
+        endpoint_canonical = json.dumps(
+            {"workbenchHost": host, "workbenchPort": workbench_port},
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
         return cls(
             canonical=canonical,
             digest=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+            endpoint_canonical=endpoint_canonical,
+            endpoint_digest=hashlib.sha256(endpoint_canonical.encode("utf-8")).hexdigest(),
         )
 
     @property
     def lock_filename(self) -> str:
         """Return a bounded filename containing no target-controlled text."""
 
-        return f"target-{self.digest}.lock"
+        return f"target-{self.endpoint_digest}.lock"
 
 
 class InterProcessFileLock:
@@ -271,10 +284,10 @@ class TargetLockManager:
             await local_lock.release_exclusive()
 
     def _local_lock(self, scope: TargetScope) -> _AsyncReaderWriterLock:
-        lock = self._local_locks.get(scope.digest)
+        lock = self._local_locks.get(scope.endpoint_digest)
         if lock is None:
             lock = _AsyncReaderWriterLock()
-            self._local_locks[scope.digest] = lock
+            self._local_locks[scope.endpoint_digest] = lock
         return lock
 
 
