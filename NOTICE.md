@@ -13,9 +13,25 @@ and Enfusion Workbench integration knowledge:
 - upstream license at that commit: MIT, copyright (c) 2025
   `enfusion-mcp contributors`.
 
-At Checkpoint A no TypeScript or Enforce source has been copied into the new
-runtime. The NET API framing description, handler registration patterns, and
-known field-name interoperability problems are treated as upstream-derived
-ideas and are independently tested here. If a staged Enforce handler later
-contains adapted upstream code, this notice will name that file explicitly.
+No TypeScript code was copied into the Python runtime. The NET API framing
+description, handler registration patterns, and known field-name
+interoperability problems are upstream-derived ideas and are independently
+tested here.
 
+The following staged files adapt the upstream's conventional
+`NetApiHandler`/`JsonApiStruct`/`RegV`/`OnPack` and
+`Workbench.GetModule(WorldEditor)` integration patterns, while replacing the
+schema and behaviour with independently written narrow handlers:
+
+- `bridge/Scripts/WorkbenchGame/RJMCP/RJMCP_GetContext.c`, informed by
+  `EMCP_WB_GetState.c` and `EMCP_WB_ListEntities.c`;
+- `bridge/Scripts/WorkbenchGame/RJMCP/RJMCP_TerrainSample.c`, informed by
+  `EMCP_WB_Terrain.c`;
+- `bridge/Scripts/WorkbenchGame/RJMCP/RJMCP_VegetationApply.c`, informed by
+  `EMCP_WB_CreateEntity.c`, `EMCP_WB_GetEntity.c`, and
+  `EMCP_WB_ListEntities.c`.
+
+The upstream files are MIT licensed under the copyright and permission notice
+in the upstream `LICENSE`; the complete same MIT grant/disclaimer is also the
+license text used by this repository's `LICENSE`. This attribution must remain
+with redistributed staged handler source.
