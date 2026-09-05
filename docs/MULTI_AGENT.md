@@ -9,8 +9,12 @@ client/model/session names are not security identities.
 Every cooperating process must use the same canonical absolute
 `ENFUSION_STATE_DIR` on a local Linux filesystem. Client configs also have to
 name the same Workbench host/port, canonical project root, world, bridge
-protocol/build, and catalog. These trusted fields derive the target lock key;
-the client never supplies lock scope.
+protocol/build, and catalog. The complete trusted scope is checked for exact
+service/config agreement, while the actual file-lock namespace is deliberately
+coarser: every configuration aimed at the same Workbench endpoint
+`host:port` shares one lock. Thus conflicting project/world metadata cannot
+split two cooperating writers that still reach the same Workbench process. The
+client never supplies either scope.
 
 If clients use different state directories, they are different coordination
 domains. The server cannot manufacture a cross-process guarantee across them.
@@ -26,8 +30,8 @@ no writes elsewhere.
 ## Layers of coordination
 
 1. An in-process async read/write lock coordinates coroutines.
-2. A target-scoped Linux `fcntl.flock` coordinates processes and is released by
-   the kernel on process death.
+2. A Workbench-endpoint-scoped Linux `fcntl.flock` coordinates processes and is
+   released by the kernel on process death.
 3. SQLite transactions and unique constraints bind one immutable plan to at
    most one operation/idempotency key and preserve state across restarts.
 
@@ -41,10 +45,13 @@ running because `flock` attaches to an inode.
 
 ## Durable operation semantics
 
-Before the first mutation byte, the operation is transactionally moved to
-`SENDING` with process ownership metadata. A dead owner's `SENDING` state is
-recovered as `UNKNOWN`; a live other process is never assumed dead merely
-because it has not responded to an MCP client.
+Before the first mutation attempt, the operation is transactionally moved to
+`SENDING` with process ownership metadata. A transport failure proven to occur
+before any request byte is sent becomes `PRE_SEND_FAILED`; an explicit retry
+with the same key may make a new attempt, but the server never retries it
+automatically. A dead owner's `SENDING` state is recovered as `UNKNOWN`; a live
+other process is never assumed dead merely because it has not responded to an
+MCP client.
 
 After the send boundary, any untrusted/incomplete outcome becomes `UNKNOWN`.
 The same key may call handler reconcile mode only. A second create request is

@@ -12,7 +12,7 @@ diagnostic metadata, not a credential.
 MCP host(s) -> independent Python STDIO process(es)
                        |       |
                        |       +-> shared SQLite operation ledger
-                       |           + Linux target-scoped flock
+                       |           + Linux Workbench-endpoint flock
                        |
                        +-> one TCP connection per request
                            127.0.0.1:5775
@@ -39,10 +39,12 @@ MCP host(s) -> independent Python STDIO process(es)
 ## Mutation state machine
 
 ```text
-planned -> applying -> applied -> undone
-                  \-> unknown -> reconciled/applied
-                              \-> partial/conflict/undone
-                  \-> failed (only when non-application is proven)
+PLANNED -> SENDING -> APPLIED -> UNDONE
+              |          ^
+              +-> UNKNOWN +-- reconcile observes a complete matching batch
+              |      +-> PARTIAL / ENTITY_CONFLICT / UNDONE
+              +-> PRE_SEND_FAILED (no request byte sent; same-key retry only)
+              +-> ROLLBACK_VERIFIED / ROLLBACK_FAILED
 ```
 
 After request transmission begins, a mutation transport failure becomes
@@ -51,10 +53,14 @@ the create batch. A new key for that plan is rejected while an operation is
 unknown. Entity names are a deterministic function of plan hash and placement
 index, which gives reconciliation a stable observation target.
 
+The complete project/world/build/catalog scope must equal the validated server
+configuration. Its interprocess lock key is nevertheless derived only from the
+literal Workbench endpoint, ensuring that two configurations aimed at the same
+process cannot accidentally acquire different mutation locks.
+
 ## Protocol compatibility
 
 The official `mcp` Python SDK is pinned. SDK v2 supports the current
 2026-07-28 discovery flow and negotiates older initialize-based clients; tests
 cover the legacy initialize handshake because many deployed hosts still use it.
 The server itself does not emit vendor-specific messages.
-

@@ -32,8 +32,10 @@ outside the authentication boundary; another local process could speak to it.
 - SQLite uniqueness, transactions, async locking, and `flock` jointly prevent
   duplicate concurrent application across processes.
 - Mutation is never automatically retried after sending begins.
-- The Enforce handler revalidates the trusted envelope immediately before one
-  `BeginEntityAction`/`EndEntityAction`; it never saves the world.
+- The Enforce handler revalidates the physical envelope immediately before one
+  `BeginEntityAction`/`EndEntityAction`; it never saves the world. Python binds
+  the plan/key/ledger state. The handler cannot independently read or attest
+  that Linux SQLite binding.
 - Logs use stderr only and redact no secrets because the protocol has none;
   nevertheless raw arbitrary payloads are not logged.
 
@@ -41,10 +43,12 @@ outside the authentication boundary; another local process could speak to it.
 
 - Staged Enforce code cannot be claimed compatible until Workbench's real
   `ValidateScripts` succeeds after explicit installation permission.
+- NET API is unauthenticated. A direct same-user caller can bypass Python's
+  immutable-plan and ledger policy; no handler-side claim of ledger binding is
+  made.
 - `flock` is a Linux local-filesystem primitive; shared network filesystems are
   out of scope.
 - Process death after Workbench mutation but before observation necessarily
   leaves an unknown outcome. Reconciliation can classify it but must not guess.
 - A user can bypass this server and mutate Workbench directly.
 - MCP host approval UX varies. Server validation remains authoritative.
-

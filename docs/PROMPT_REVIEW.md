@@ -49,33 +49,50 @@ yet be proven.
    zero.
 8. **Terrain normal.** The bridge contract carries all three normal components,
    not only `normalY`, so Python can validate/normalize it before calculating
-   `degrees(acos(clamp(normalized_y, -1, 1)))`.
+   `degrees(atan2(hypot(normal_x, normal_z), normal_y))`.
 9. **Unknown outcomes.** Any timeout, socket failure, malformed frame/UTF-8/JSON,
    or invalid response after the first mutation byte may have been sent is
    `UNKNOWN_OUTCOME`, unless a trusted handler result explicitly proves that no
    mutation started or rollback completed.
 10. **Locks.** Multi-process safety is conditional on all cooperating processes
     using the same canonical absolute local `ENFUSION_STATE_DIR`. Planning holds
-    a shared target lock across context/sample/persist; apply/reconcile holds an
-    exclusive lock. NFS/remote filesystems are unsupported.
+    a shared lock across context/sample/persist; apply/reconcile holds an
+    exclusive lock. The file-lock namespace is Workbench-endpoint-wide, even
+    when two misconfigured processes disagree on project/world metadata. NFS
+    and other remote filesystems are unsupported.
 11. **Layer paths.** V1 accepts exactly the two root-level paths
     `MCP_Preview`/`MCP_Vegetation`; live validation must establish Workbench's
     sentinel/round-trip behaviour and hierarchy lock check.
 12. **Protocol success literal.** `Ok` is an upstream compatibility assumption
     until a permitted live capture confirms it. Golden tests use literal bytes
     and state their provenance.
+13. **Catalog/live-sequence dependency.** The prompt asks Checkpoint C to keep
+    an unproven production catalog empty, yet its first live sequence later
+    assumes that an 8–12-object production plan can already be made. Those
+    conditions cannot both hold. The current bridge is deliberately
+    read-capable/create-disabled. After the first permissioned read-only
+    validation, exact resources must be established and a second reviewed
+    bridge/catalog revision (new build ID and catalog hash) must be installed
+    and validated before a production plan or apply can exist.
 
 ## Claims deliberately deferred
 
 Static staged handler review cannot prove Enforce compilation, actual prefab
-loading, editor-source scale persistence, transform round-tripping, rollback
-history semantics, or that a batch is removed by exactly one Ctrl+Z. These
-remain `UNVERIFIED_LIVE` after Checkpoint C and require the later permissioned
-acceptance stages.
+loading/resource-name representation, transform round-tripping, rollback
+history semantics, or that a batch is removed by exactly one Ctrl+Z. The staged
+create path therefore remains independently hard-disabled after Checkpoint C.
+These properties require later permissioned validation before that gate can be
+changed and before any live mutation is acceptable.
 
 Likewise, Checkpoint C cannot inspect destination collisions while the active
 project is forbidden. Its report must say collision status is unknown, show the
 calculated destination and proposed files, and perform no read of that path.
+
+The exact installation permission is not treated as permission to silently
+enable a later handler revision. A changed manifest/hash is shown again and
+requires a renewed explicit installation decision. Enabling create still does
+not authorize a mutation: the exact new plan must be shown and the user must
+then separately write `применяй`.
 
 ## Evidence labels
 
@@ -85,4 +102,3 @@ calculated destination and proposed files, and perform no read of that path.
 - `LIVE_READ_VERIFIED`: permitted live context/terrain evidence.
 - `LIVE_MUTATION_VERIFIED`: permitted create/reconcile/Undo smoke evidence.
 - `UNVERIFIED_LIVE`: requires a later permission gate.
-
