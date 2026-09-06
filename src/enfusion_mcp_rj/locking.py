@@ -248,11 +248,12 @@ class TargetLockManager:
     ) -> AsyncIterator[None]:
         """Allow concurrent read-only work while excluding apply/reconcile."""
 
+        deadline = _deadline(wait_limit)
         local_lock = self._local_lock(scope)
-        await local_lock.acquire_shared()
+        await _acquire_local_lock(local_lock, LockMode.SHARED, deadline=deadline)
         try:
             descriptor = await _acquire_file_lock_async(
-                self.lock_path(scope), LockMode.SHARED, wait_limit=wait_limit
+                self.lock_path(scope), LockMode.SHARED, wait_limit=_remaining_wait(deadline)
             )
             try:
                 yield
@@ -270,11 +271,12 @@ class TargetLockManager:
     ) -> AsyncIterator[None]:
         """Serialize mutation/reconciliation for exactly one target scope."""
 
+        deadline = _deadline(wait_limit)
         local_lock = self._local_lock(scope)
-        await local_lock.acquire_exclusive()
+        await _acquire_local_lock(local_lock, LockMode.EXCLUSIVE, deadline=deadline)
         try:
             descriptor = await _acquire_file_lock_async(
-                self.lock_path(scope), LockMode.EXCLUSIVE, wait_limit=wait_limit
+                self.lock_path(scope), LockMode.EXCLUSIVE, wait_limit=_remaining_wait(deadline)
             )
             try:
                 yield
@@ -321,6 +323,9 @@ class _AsyncReaderWriterLock:
                 self._writer = True
             finally:
                 self._waiting_writers -= 1
+                # A cancelled/timed-out writer must not leave readers asleep
+                # behind writer preference while another reader still holds.
+                self._condition.notify_all()
 
     async def release_exclusive(self) -> None:
         async with self._condition:
@@ -328,6 +333,26 @@ class _AsyncReaderWriterLock:
                 raise LockError("exclusive asyncio lock is not held")
             self._writer = False
             self._condition.notify_all()
+
+
+def _remaining_wait(deadline: float | None) -> float | None:
+    return None if deadline is None else max(0.0, deadline - time.monotonic())
+
+
+async def _acquire_local_lock(
+    lock: _AsyncReaderWriterLock,
+    mode: LockMode,
+    *,
+    deadline: float | None,
+) -> None:
+    try:
+        async with asyncio.timeout(_remaining_wait(deadline)):
+            if mode is LockMode.SHARED:
+                await lock.acquire_shared()
+            else:
+                await lock.acquire_exclusive()
+    except TimeoutError as exc:
+        raise LockTimeoutError(f"timed out acquiring local {mode.value} lock") from exc
 
 
 async def _acquire_file_lock_async(

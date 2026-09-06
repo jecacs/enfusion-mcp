@@ -346,3 +346,56 @@ def test_lock_object_rejects_double_acquire_release_and_invalid_timeout(tmp_path
     lock.release()
     with pytest.raises(LockError, match="not acquired"):
         lock.release()
+
+
+@pytest.mark.parametrize("mode", [LockMode.SHARED, LockMode.EXCLUSIVE])
+async def test_async_wait_limit_includes_local_contention(tmp_path: Path, mode: LockMode) -> None:
+    manager = TargetLockManager(tmp_path / "state", allowed_root=tmp_path)
+    scope = _scope(tmp_path)
+    acquire = manager.shared if mode is LockMode.SHARED else manager.exclusive
+
+    async with manager.exclusive(scope):
+        # The outer timeout is a test watchdog, not the expected exception.
+        async with asyncio.timeout(1):
+            with pytest.raises(LockTimeoutError, match="local"):
+                async with acquire(scope, wait_limit=0.03):
+                    pytest.fail("contender entered an exclusively held lock")
+
+    async with acquire(scope, wait_limit=0):
+        pass
+
+
+async def test_timed_out_writer_wakes_readers_while_existing_reader_remains(
+    tmp_path: Path,
+) -> None:
+    manager = TargetLockManager(tmp_path / "state", allowed_root=tmp_path)
+    scope = _scope(tmp_path)
+
+    async def writer() -> None:
+        with pytest.raises(LockTimeoutError):
+            async with manager.exclusive(scope, wait_limit=0.08):
+                pytest.fail("writer entered while a reader was active")
+
+    reader_entered = asyncio.Event()
+
+    async def reader() -> None:
+        async with manager.shared(scope, wait_limit=0.5):
+            reader_entered.set()
+
+    async with manager.shared(scope):
+        writer_task = asyncio.create_task(writer())
+        # Let the writer join the condition queue before starting the reader.
+        await asyncio.sleep(0)
+        reader_task = asyncio.create_task(reader())
+        await writer_task
+        await asyncio.wait_for(reader_entered.wait(), timeout=0.5)
+        await reader_task
+
+
+async def test_invalid_async_wait_limit_rejected_before_local_wait(tmp_path: Path) -> None:
+    manager = TargetLockManager(tmp_path / "state", allowed_root=tmp_path)
+    scope = _scope(tmp_path)
+    async with manager.exclusive(scope):
+        with pytest.raises(ValueError, match="non-negative"):
+            async with manager.shared(scope, wait_limit=-1):
+                pytest.fail("invalid wait limit accepted")
