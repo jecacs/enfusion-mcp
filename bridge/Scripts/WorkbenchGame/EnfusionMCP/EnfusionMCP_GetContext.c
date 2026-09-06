@@ -6,16 +6,16 @@
  * See the source repository NOTICE.md for complete attribution.
  *
  * Staged read-only bridge endpoint. UNVERIFIED_LIVE until ValidateScripts.
- * APIFunc: RJMCP_GetContext
+ * APIFunc: EnfusionMCP_GetContext
  */
 
-class RJMCP_ContextVec3 : JsonApiStruct
+class EnfusionMCP_ContextVec3 : JsonApiStruct
 {
 	float x;
 	float y;
 	float z;
 
-	void RJMCP_ContextVec3()
+	void EnfusionMCP_ContextVec3()
 	{
 		RegV("x");
 		RegV("y");
@@ -23,7 +23,7 @@ class RJMCP_ContextVec3 : JsonApiStruct
 	}
 }
 
-class RJMCP_ContextTerrainBounds : JsonApiStruct
+class EnfusionMCP_ContextTerrainBounds : JsonApiStruct
 {
 	float minX;
 	float minY;
@@ -32,7 +32,7 @@ class RJMCP_ContextTerrainBounds : JsonApiStruct
 	float maxY;
 	float maxZ;
 
-	void RJMCP_ContextTerrainBounds()
+	void EnfusionMCP_ContextTerrainBounds()
 	{
 		RegV("minX");
 		RegV("minY");
@@ -43,15 +43,15 @@ class RJMCP_ContextTerrainBounds : JsonApiStruct
 	}
 }
 
-class RJMCP_GetContextRequest : JsonApiStruct
+class EnfusionMCP_GetContextRequest : JsonApiStruct
 {
-	void RJMCP_GetContextRequest()
+	void EnfusionMCP_GetContextRequest()
 	{
 		// No request fields. The Python MCP boundary rejects extra arguments.
 	}
 }
 
-class RJMCP_GetContextResponse : JsonApiStruct
+class EnfusionMCP_GetContextResponse : JsonApiStruct
 {
 	string status;
 	string errorCode;
@@ -64,15 +64,15 @@ class RJMCP_GetContextResponse : JsonApiStruct
 	int currentSubscene;
 	int currentLayerId;
 	string activeLayerPath;
-	ref RJMCP_ContextTerrainBounds terrainBounds;
+	ref EnfusionMCP_ContextTerrainBounds terrainBounds;
 	int selectionCount;
 	string selectedName;
 	string selectedClass;
 	bool polygonCompatible;
 	bool shapeClosed;
-	ref array<ref RJMCP_ContextVec3> m_aShapePointsWorld;
+	ref array<ref EnfusionMCP_ContextVec3> m_aShapePointsWorld;
 
-	void RJMCP_GetContextResponse()
+	void EnfusionMCP_GetContextResponse()
 	{
 		RegV("status");
 		RegV("errorCode");
@@ -85,7 +85,7 @@ class RJMCP_GetContextResponse : JsonApiStruct
 		RegV("currentSubscene");
 		RegV("currentLayerId");
 		RegV("activeLayerPath");
-		terrainBounds = new RJMCP_ContextTerrainBounds();
+		terrainBounds = new EnfusionMCP_ContextTerrainBounds();
 		RegV("terrainBounds");
 		RegV("selectionCount");
 		RegV("selectedName");
@@ -96,9 +96,9 @@ class RJMCP_GetContextResponse : JsonApiStruct
 		currentSubscene = -1;
 		currentLayerId = -1;
 		mode = "unknown";
-		bridgeProtocolVersion = "rjmcp-bridge-v1";
-		bridgeBuildId = "rjmcp-bridge-v1-review-fixes";
-		catalogHash = "09acc4254f9f2adfc5b339b1160006526f54d3668c2016442d58609016b1d596";
+		bridgeProtocolVersion = "enfusion-mcp-bridge-v1";
+		bridgeBuildId = "enfusion-mcp-bridge-v1-map-agnostic";
+		catalogHash = "fe7a5214aebc0cfc171d5b0b218fddeb43c75303a5ae94cc77457c8b7334ee06";
 	}
 
 	override void OnPack()
@@ -110,9 +110,9 @@ class RJMCP_GetContextResponse : JsonApiStruct
 	}
 }
 
-class RJMCP_GetContext : NetApiHandler
+class EnfusionMCP_GetContext : NetApiHandler
 {
-	static void Fail(RJMCP_GetContextResponse response, string code, string text)
+	static void Fail(EnfusionMCP_GetContextResponse response, string code, string text)
 	{
 		response.status = "error";
 		response.errorCode = code;
@@ -121,12 +121,12 @@ class RJMCP_GetContext : NetApiHandler
 
 	override JsonApiStruct GetRequest()
 	{
-		return new RJMCP_GetContextRequest();
+		return new EnfusionMCP_GetContextRequest();
 	}
 
 	override JsonApiStruct GetResponse(JsonApiStruct request)
 	{
-		RJMCP_GetContextResponse response = new RJMCP_GetContextResponse();
+		EnfusionMCP_GetContextResponse response = new EnfusionMCP_GetContextResponse();
 		WorldEditor worldEditor = Workbench.GetModule(WorldEditor);
 		if (!worldEditor)
 		{
@@ -197,7 +197,7 @@ class RJMCP_GetContext : NetApiHandler
 					for (int pointIndex = 0; pointIndex < localPoints.Count(); pointIndex++)
 					{
 						vector worldPoint = polygon.CoordToParent(localPoints[pointIndex]);
-						RJMCP_ContextVec3 point = new RJMCP_ContextVec3();
+						EnfusionMCP_ContextVec3 point = new EnfusionMCP_ContextVec3();
 						point.x = worldPoint[0];
 						point.y = worldPoint[1];
 						point.z = worldPoint[2];

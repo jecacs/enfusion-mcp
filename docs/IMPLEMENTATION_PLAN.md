@@ -1,4 +1,8 @@
-# Implementation plan
+# Historical implementation plan
+
+This plan records the initial A–C development sequence. It is not a deployment
+checklist or current test report. For setup, use
+[BRIDGE_INSTALLATION_PLAN.md](BRIDGE_INSTALLATION_PLAN.md).
 
 ## Checkpoint A — reference and boundary
 
@@ -28,7 +32,7 @@
    rejection statistics, quantization, canonical JSON, and plan persistence.
 3. Implement operation binding/state transitions, cross-process serialization,
    unknown-outcome reconciliation, Undo classification, and fault tests.
-4. Stage the three `RJMCP_*.c` handlers and statically validate their real
+4. Stage the three `EnfusionMCP_*.c` handlers and statically validate their real
    registration/`RegV` contracts against Python models.
 5. Finish client-neutral and client-adapter documentation.
 6. Run format, lint, typing, build, tests, and separate audits; commit and stop.

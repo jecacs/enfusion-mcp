@@ -1,18 +1,26 @@
 # Staged Enforce bridge
 
 The repository stages exactly three handlers under
-`bridge/Scripts/WorkbenchGame/RJMCP/`. They are source artifacts only and are
+`bridge/Scripts/WorkbenchGame/EnfusionMCP/`. They are source artifacts only and are
 not installed by any server tool or development command.
 
-- `RJMCP_GetContext`: read-only world/subscene/layer/terrain/selection and
+- `EnfusionMCP_GetContext`: read-only world/subscene/layer/terrain/selection and
   polygon-compatible `PolylineShapeEntity` points transformed from local to
   world coordinates.
-- `RJMCP_TerrainSample`: one ordered batch of 1–1000 X/Z points using
+- `EnfusionMCP_TerrainSample`: one ordered batch of 1–1000 X/Z points using
   `TryGetTerrainSurfaceY` and a normalized full XYZ normal from
   `SCR_TerrainHelper.GetTerrainNormal`.
-- `RJMCP_VegetationApply`: trusted flat create/reconcile envelope, physical
+- `EnfusionMCP_VegetationApply`: trusted flat create/reconcile envelope, physical
   preflight, deterministic names, one entity action, verified cleanup attempts,
   and no save.
+
+The bridge contains no addon ID or fixed map resource. Python requires an
+explicit `ENFUSION_ALLOWED_WORLD` and checks observed context against that exact
+value. The apply handler rejects an empty requested world, then requires the
+current Workbench world and subscene to exactly match the stored plan's request
+before reconciliation or mutation. A different world is stale; no wildcard or
+substring match authorizes it. Direct NET API callers remain outside Python's
+configuration and ledger boundary.
 
 ## Source evidence
 
@@ -49,7 +57,8 @@ response arrays use `ItemString`, never the old `StoreString("", ...)` pattern.
 
 ## Editor-source transforms
 
-The reviewed build fingerprint is `rjmcp-bridge-v1-review-fixes`. Creation uses
+The build fingerprint is `enfusion-mcp-bridge-v1-map-agnostic`, with protocol
+`enfusion-mcp-bridge-v1`. Creation uses
 `CreateEntity(..., vector.Zero)` followed by checked editor-source writes to
 `angleY` and `scale`, in the same `BeginEntityAction`/`EndEntityAction` batch.
 This follows the official sample's explicit yaw property and does not assume
@@ -82,10 +91,10 @@ the edit/Undo/Redo guard before its terrain preflight and mutation action.
 
 ## Fail-closed production catalog
 
-The permitted reference contains no vegetation prefab that can be proven valid
-for the user's current Tools/project build. The Python production catalog and
+No production vegetation prefab has been validated for a target Tools/addon
+build. The Python production catalog and
 the handler allowlist are therefore both empty and share the exact same hash.
-`RJMCP_VegetationApply` rejects every create before `BeginEntityAction` with
+`EnfusionMCP_VegetationApply` rejects every create before `BeginEntityAction` with
 `CATALOG_NOT_READY`; an independent
 `MUTATION_IMPLEMENTATION_VALIDATED=false` gate also control-dominates every
 create mutation. Changing the catalog alone cannot enable writes.
@@ -122,7 +131,7 @@ Until a later explicit installation and clean live `ValidateScripts`:
 - `CreateEntity` prefab identity, source `angleY`/`scale` read/write round-trips,
   entity reinitialization, and final yaw/scale transforms are `UNVERIFIED_LIVE`;
   the source-level property names and getter conventions have official API and
-  sample evidence, but have not been exercised in this user's Tools build;
+  sample evidence, but still need to be exercised in the target Tools build;
 - cleanup and `EndEntityAction` semantics, including an empty history point on
   successful rollback, are `UNVERIFIED_LIVE`;
 - exactly one Ctrl+Z removing a completed batch is `UNVERIFIED_LIVE`.
@@ -136,5 +145,17 @@ read-only compile/contract stage, a later reviewed commit must establish the
 exact catalog, prepare the explicit live acceptance of source transforms and
 rollback, bump the build fingerprint, explicitly change the hard gate, show a
 new installation manifest/hashes, obtain renewed installation approval, and
-pass `ValidateScripts` again. Separate `применяй` approval is still required
-for the exact shown plan.
+pass `ValidateScripts` again. Application also requires explicit approval of
+the exact reviewed, non-expired plan.
+
+## Upgrading an existing installation
+
+The current package, executable, handler names, and protocol/build identities
+replace those used by earlier revisions. Update all client configurations and
+installed handlers together; older clients and bridges are not interchangeable
+with this revision. Resolve outstanding operations with the matching previous
+runtime/bridge before upgrading. Stop all cooperating clients and back up their
+shared state, then review the new installation manifest. Do not delete the
+ledger or change state directories to bypass an unresolved operation. Existing
+plans refer to their original protocol/build identity and must not be replayed
+through this revision.

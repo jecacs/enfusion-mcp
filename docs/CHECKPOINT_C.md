@@ -4,7 +4,9 @@ Historical report for the original pre-install artifact at `1a633cb`.
 An independent review subsequently found logic defects and incomplete scale
 support. Its original test results and manifest below are retained as historical
 evidence, not current readiness or installation approval. See
-`REVIEW_FIXES.md` for the corrective revision and current verification limits.
+[REVIEW_FIXES.md](REVIEW_FIXES.md) for the subsequent corrective revision and
+[ENFORCE_BRIDGE.md](ENFORCE_BRIDGE.md) for current verification limits. Paths
+and package identifiers are generalized for public documentation.
 
 Checkpoint C was completed on 2026-09-06 on branch
 `feature/python-linux-proton-safe-vegetation`. The original repository baseline
@@ -22,7 +24,7 @@ stops here before bridge installation or any live Workbench access.
   independent STDIO processes;
 - strict lowerCamelCase Python↔Enforce models and exact apply build/catalog
   fingerprints;
-- three staged, attributed `RJMCP_*.c` handlers;
+- three staged, attributed `EnfusionMCP_*.c` handlers;
 - generic, Codex, Claude, and local/self-hosted STDIO configuration examples;
 - a deliberately empty production vegetation catalog and independent
   `MUTATION_IMPLEMENTATION_VALIDATED=false` handler gate.
@@ -44,7 +46,7 @@ of itself inside this report.
 git diff --check
 exit 0; no output
 
-UV_CACHE_DIR=/tmp/enfusion-mcp-rj-uv-cache uv lock --check
+UV_CACHE_DIR=/tmp/enfusion-mcp-uv-cache uv lock --check
 exit 0; Resolved 90 packages
 
 .venv/bin/ruff format --check .
@@ -88,10 +90,10 @@ The required suites were also run separately:
 Build and metadata validation:
 
 ```text
-UV_CACHE_DIR=/tmp/enfusion-mcp-rj-uv-cache uv build --no-build-isolation --out-dir /tmp/enfusion-mcp-rj-checkpoint-c-build.o6vvcg
+UV_CACHE_DIR=/tmp/enfusion-mcp-uv-cache uv build --no-build-isolation --out-dir /tmp/enfusion-mcp-checkpoint-c-build.o6vvcg
 exit 0
-Successfully built enfusion_mcp_rj-0.1.0a0.tar.gz
-Successfully built enfusion_mcp_rj-0.1.0a0-py3-none-any.whl
+Successfully built enfusion_mcp-0.1.0a0.tar.gz
+Successfully built enfusion_mcp-0.1.0a0-py3-none-any.whl
 
 .venv/bin/twine check <wheel> <sdist>
 exit 0; wheel PASSED; sdist PASSED
@@ -109,11 +111,11 @@ hash-bearing exports with the project itself omitted:
 
 ```text
 production export: 30 distributions
-.venv/bin/pip-audit --progress-spinner off --requirement /tmp/enfusion-mcp-rj-prod-final.txt
+.venv/bin/pip-audit --progress-spinner off --requirement /tmp/enfusion-mcp-prod-final.txt
 exit 0; No known vulnerabilities found
 
 full dev/test export: 89 distributions
-.venv/bin/pip-audit --progress-spinner off --requirement /tmp/enfusion-mcp-rj-full-final.txt
+.venv/bin/pip-audit --progress-spinner off --requirement /tmp/enfusion-mcp-full-final.txt
 exit 0; No known vulnerabilities found
 ```
 
@@ -134,26 +136,28 @@ a7657dd chore: establish audited Python MCP scaffold
 No commit was pushed. The final `git log` in the handoff also includes the
 documentation commit that contains this report.
 
-## Staged bridge manifest
+## Historical staged bridge manifest
 
-Calculated destination (not resolved, listed, or read):
+The following sizes/hashes belong only to the checkpoint source revision. They
+must not be used to verify or install today's source. The original local
+destination is represented by this placeholder:
 
 ```text
-/home/jecacs/.local/share/Steam/steamapps/compatdata/1874910/pfx/drive_c/users/steamuser/Documents/My Games/ArmaReforgerWorkbench/addons/new_rj/Scripts/WorkbenchGame/RJMCP
+/path/to/addon/Scripts/WorkbenchGame/EnfusionMCP
 ```
 
 Only these files are proposed:
 
 | Staged source | Bytes | SHA-256 | Proposed destination filename |
 |---|---:|---|---|
-| `bridge/Scripts/WorkbenchGame/RJMCP/RJMCP_GetContext.c` | 5506 | `8d15c9f1765aa417a98ffd3b0f9e03ff9ba1a4f9f444fe4bc590ee3f3298a986` | `RJMCP_GetContext.c` |
-| `bridge/Scripts/WorkbenchGame/RJMCP/RJMCP_TerrainSample.c` | 6463 | `2af16362d9d71ae50e1ba8894e49c06a663db43ae2c6de7717811289b481f261` | `RJMCP_TerrainSample.c` |
-| `bridge/Scripts/WorkbenchGame/RJMCP/RJMCP_VegetationApply.c` | 22032 | `2e6f98df929089c4bd060268f69acfb8688ce756eefe956f8dfb271390654fa2` | `RJMCP_VegetationApply.c` |
+| `bridge/Scripts/WorkbenchGame/EnfusionMCP/EnfusionMCP_GetContext.c` | 5506 | `8d15c9f1765aa417a98ffd3b0f9e03ff9ba1a4f9f444fe4bc590ee3f3298a986` | `EnfusionMCP_GetContext.c` |
+| `bridge/Scripts/WorkbenchGame/EnfusionMCP/EnfusionMCP_TerrainSample.c` | 6463 | `2af16362d9d71ae50e1ba8894e49c06a663db43ae2c6de7717811289b481f261` | `EnfusionMCP_TerrainSample.c` |
+| `bridge/Scripts/WorkbenchGame/EnfusionMCP/EnfusionMCP_VegetationApply.c` | 22032 | `2e6f98df929089c4bd060268f69acfb8688ce756eefe956f8dfb271390654fa2` | `EnfusionMCP_VegetationApply.c` |
 
 Collision status is **unknown by design**: the active project was not read.
 Possible conflicting existing files are those exact three destination names;
 no claim is made about whether they exist. No unknown file may be deleted or
-overwritten. `resourceDatabase.rdb`, `rj.ent`, `default.layer`, terrain, and all
+overwritten. `resourceDatabase.rdb`, world `.ent` files, layers, terrain, and all
 other project files are excluded.
 
 ## Known risks and blockers
@@ -177,30 +181,18 @@ other project files are excluded.
    directly.
 8. Cross-process guarantees require every cooperating host to use the same
    canonical local `ENFUSION_STATE_DIR`. Remote/NFS state is unsupported.
-9. Destination realpath, project markers, and collisions cannot be verified
-   until the exact installation permission is received.
+9. Destination realpath, project markers, and collisions were not verified
+   as part of this checkpoint.
 
-## Backup and permission boundary
+## Historical deployment boundary
 
-Before any future copy, first verify the exact active realpath and project
-markers, then have the user make a timestamped backup to a new, separate backup
-location such as `<separate-backup-root>/new_rj-YYYYMMDD-HHMMSS`. Never use,
-compare, or synchronize `/home/jecacs/Documents/the new RJ` as that backup.
-Show the backup location and complete source → destination manifest before
-copying anything.
+The checkpoint did not install handlers, inspect or modify an active addon,
+launch Steam/Workbench/Proton, change a Proton prefix, or probe/use port 5775.
+Installation and application were deferred to a separate reviewed deployment.
+The reusable current procedure is in
+[BRIDGE_INSTALLATION_PLAN.md](BRIDGE_INSTALLATION_PLAN.md).
 
-Installation may proceed only after the user literally writes:
-
-```text
-Разрешаю установить bridge в active new_rj
-```
-
-Even then, this gate-false artifact is read-only validation scaffolding. A later
-catalog/live-capable revision needs a new reviewed commit, new hashes/manifest,
-renewed installation approval, manual restart, and another clean
-`ValidateScripts`. Mutation additionally requires a shown current 8–12-object
-plan and a separate `применяй` message.
-
-At this checkpoint the active map and stale copy were not read or modified;
-handlers were not installed; Steam, Workbench, and Proton were not launched;
-the Proton prefix was not changed; and port 5775 was neither probed nor used.
+The historical gate-false artifact was intended for read-only validation. A
+future live-capable revision still needs a reviewed catalog and implementation,
+fresh source hashes, manual restart, and clean `ValidateScripts`. Application
+also requires review and explicit approval of the exact current plan.

@@ -7,7 +7,10 @@ or unsafe configuration prevents the STDIO server from starting.
 
 - Workbench target is literal `127.0.0.1:5775`.
 - Platform and Tools app ID are exactly `native-linux-proton` and `1874910`.
-- Allowed world is exactly `$thenewRJ:rj.ent`.
+- `ENFUSION_ALLOWED_WORLD` is required and selects one exact world resource.
+  There is no default map or wildcard: live context and plan identity must
+  match the configured value, and the bridge checks the requested world against
+  the currently open Workbench world before reconciliation or mutation.
 - Project host and engine paths must round-trip through real Proton
   `dosdevices` mappings and the host path must remain in its configured root.
 - Shared state uses one required canonical absolute local directory outside the

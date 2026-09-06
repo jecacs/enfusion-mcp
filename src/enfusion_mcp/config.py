@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal, cast
 
-from enfusion_mcp_rj.path_types import (
+from enfusion_mcp.path_types import (
     EnginePath,
     HostPath,
     PathMappingError,
@@ -21,7 +21,6 @@ PLATFORM_MODE: Final = "native-linux-proton"
 STEAM_TOOLS_APP_ID: Final = "1874910"
 WORKBENCH_HOST: Final = "127.0.0.1"
 WORKBENCH_PORT: Final = "5775"
-ALLOWED_WORLD: Final = "$thenewRJ:rj.ent"
 SAFE_MODE: Final = "1"
 
 REQUIRED_ENVIRONMENT: Final[tuple[str, ...]] = (
@@ -144,6 +143,7 @@ class ServerConfig:
 
     Both direct construction and ``from_env`` run the same fail-closed runtime
     invariants. ``from_env`` is the supported external configuration boundary.
+    The target world is explicitly configured; no map is built into this profile.
     """
 
     platform_mode: Literal["native-linux-proton"]
@@ -174,13 +174,8 @@ class ServerConfig:
             raise ConfigurationError("project_host_path", "must be a HostPath")
         if type(self.project_engine_path) is not EnginePath:
             raise ConfigurationError("project_engine_path", "must be an EnginePath")
-        if (
-            type(self.allowed_world) is not ResourceName
-            or self.allowed_world.value != ALLOWED_WORLD
-        ):
-            raise ConfigurationError(
-                "allowed_world", f"safe profile requires exactly {ALLOWED_WORLD!r}"
-            )
+        if type(self.allowed_world) is not ResourceName:
+            raise ConfigurationError("allowed_world", "must be a ResourceName")
         if type(self.state_dir) is not HostPath:
             raise ConfigurationError("state_dir", "must be a HostPath")
 
@@ -222,7 +217,6 @@ class ServerConfig:
         _require_exact(values, "ENFUSION_STEAM_TOOLS_APP_ID", STEAM_TOOLS_APP_ID)
         _require_exact(values, "ENFUSION_WORKBENCH_HOST", WORKBENCH_HOST)
         _require_exact(values, "ENFUSION_WORKBENCH_PORT", WORKBENCH_PORT)
-        _require_exact(values, "ENFUSION_ALLOWED_WORLD", ALLOWED_WORLD)
         _require_exact(values, "ENFUSION_SAFE_MODE", SAFE_MODE)
 
         proton_prefix = _canonical_directory(
@@ -293,7 +287,6 @@ Settings = ServerConfig
 
 
 __all__ = [
-    "ALLOWED_WORLD",
     "PLATFORM_MODE",
     "REQUIRED_ENVIRONMENT",
     "SAFE_MODE",

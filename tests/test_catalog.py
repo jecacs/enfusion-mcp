@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from enfusion_mcp_rj.catalog import PRODUCTION_CATALOG, VegetationCatalog
-from enfusion_mcp_rj.models import CatalogEntry
+from enfusion_mcp.catalog import PRODUCTION_CATALOG, VegetationCatalog
+from enfusion_mcp.models import CatalogEntry
 
 
 def test_production_catalog_is_explicitly_fail_closed() -> None:

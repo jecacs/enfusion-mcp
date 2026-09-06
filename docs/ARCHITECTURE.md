@@ -19,7 +19,7 @@ MCP host(s) -> independent Python STDIO process(es)
                                 |
                        manually started Workbench/Proton
                                 |
-                       narrow staged RJMCP handlers
+                       narrow staged EnfusionMCP handlers
 ```
 
 ## Components

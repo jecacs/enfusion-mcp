@@ -6,15 +6,15 @@
  * See the source repository NOTICE.md for complete attribution.
  *
  * Staged read-only batched terrain endpoint. UNVERIFIED_LIVE until ValidateScripts.
- * APIFunc: RJMCP_TerrainSample
+ * APIFunc: EnfusionMCP_TerrainSample
  */
 
-class RJMCP_TerrainPointRequest : JsonApiStruct
+class EnfusionMCP_TerrainPointRequest : JsonApiStruct
 {
 	float x;
 	float z;
 
-	void RJMCP_TerrainPointRequest()
+	void EnfusionMCP_TerrainPointRequest()
 	{
 		// A missing coordinate must not silently become the valid coordinate zero.
 		x = 1000001.0;
@@ -24,18 +24,18 @@ class RJMCP_TerrainPointRequest : JsonApiStruct
 	}
 }
 
-class RJMCP_TerrainSampleRequest : JsonApiStruct
+class EnfusionMCP_TerrainSampleRequest : JsonApiStruct
 {
-	ref array<ref RJMCP_TerrainPointRequest> points;
+	ref array<ref EnfusionMCP_TerrainPointRequest> points;
 
-	void RJMCP_TerrainSampleRequest()
+	void EnfusionMCP_TerrainSampleRequest()
 	{
 		points = {};
 		RegV("points");
 	}
 }
 
-class RJMCP_TerrainSampleItem : JsonApiStruct
+class EnfusionMCP_TerrainSampleItem : JsonApiStruct
 {
 	float requestedX;
 	float requestedZ;
@@ -45,7 +45,7 @@ class RJMCP_TerrainSampleItem : JsonApiStruct
 	float normalZ;
 	bool hasTerrain;
 
-	void RJMCP_TerrainSampleItem()
+	void EnfusionMCP_TerrainSampleItem()
 	{
 		RegV("requestedX");
 		RegV("requestedZ");
@@ -57,22 +57,22 @@ class RJMCP_TerrainSampleItem : JsonApiStruct
 	}
 }
 
-class RJMCP_TerrainSampleResponse : JsonApiStruct
+class EnfusionMCP_TerrainSampleResponse : JsonApiStruct
 {
 	string status;
 	string errorCode;
 	string message;
 	string bridgeProtocolVersion;
-	ref array<ref RJMCP_TerrainSampleItem> m_aResults;
+	ref array<ref EnfusionMCP_TerrainSampleItem> m_aResults;
 	ref array<string> m_aWarnings;
 
-	void RJMCP_TerrainSampleResponse()
+	void EnfusionMCP_TerrainSampleResponse()
 	{
 		RegV("status");
 		RegV("errorCode");
 		RegV("message");
 		RegV("bridgeProtocolVersion");
-		bridgeProtocolVersion = "rjmcp-bridge-v1";
+		bridgeProtocolVersion = "enfusion-mcp-bridge-v1";
 		m_aResults = {};
 		m_aWarnings = {};
 	}
@@ -91,7 +91,7 @@ class RJMCP_TerrainSampleResponse : JsonApiStruct
 	}
 }
 
-class RJMCP_TerrainSample : NetApiHandler
+class EnfusionMCP_TerrainSample : NetApiHandler
 {
 	static bool IsFiniteCoordinate(float value)
 	{
@@ -114,7 +114,7 @@ class RJMCP_TerrainSample : NetApiHandler
 			&& boundsMin[2] <= boundsMax[2];
 	}
 
-	static void Fail(RJMCP_TerrainSampleResponse response, string code, string text)
+	static void Fail(EnfusionMCP_TerrainSampleResponse response, string code, string text)
 	{
 		response.status = "error";
 		response.errorCode = code;
@@ -123,13 +123,13 @@ class RJMCP_TerrainSample : NetApiHandler
 
 	override JsonApiStruct GetRequest()
 	{
-		return new RJMCP_TerrainSampleRequest();
+		return new EnfusionMCP_TerrainSampleRequest();
 	}
 
 	override JsonApiStruct GetResponse(JsonApiStruct request)
 	{
-		RJMCP_TerrainSampleRequest typedRequest = RJMCP_TerrainSampleRequest.Cast(request);
-		RJMCP_TerrainSampleResponse response = new RJMCP_TerrainSampleResponse();
+		EnfusionMCP_TerrainSampleRequest typedRequest = EnfusionMCP_TerrainSampleRequest.Cast(request);
+		EnfusionMCP_TerrainSampleResponse response = new EnfusionMCP_TerrainSampleResponse();
 		if (!typedRequest || !typedRequest.points)
 		{
 			Fail(response, "INVALID_REQUEST", "points array is required");
@@ -143,7 +143,7 @@ class RJMCP_TerrainSample : NetApiHandler
 
 		for (int validationIndex = 0; validationIndex < typedRequest.points.Count(); validationIndex++)
 		{
-			RJMCP_TerrainPointRequest requestedPoint = typedRequest.points[validationIndex];
+			EnfusionMCP_TerrainPointRequest requestedPoint = typedRequest.points[validationIndex];
 			if (!requestedPoint || !IsFiniteCoordinate(requestedPoint.x) || !IsFiniteCoordinate(requestedPoint.z))
 			{
 				Fail(response, "INVALID_COORDINATE", "all X/Z values must be finite and bounded");
@@ -185,8 +185,8 @@ class RJMCP_TerrainSample : NetApiHandler
 		}
 		for (int i = 0; i < typedRequest.points.Count(); i++)
 		{
-			RJMCP_TerrainPointRequest inputPoint = typedRequest.points[i];
-			RJMCP_TerrainSampleItem item = new RJMCP_TerrainSampleItem();
+			EnfusionMCP_TerrainPointRequest inputPoint = typedRequest.points[i];
+			EnfusionMCP_TerrainSampleItem item = new EnfusionMCP_TerrainSampleItem();
 			item.requestedX = inputPoint.x;
 			item.requestedZ = inputPoint.z;
 			item.hasTerrain = false;

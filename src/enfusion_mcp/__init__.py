@@ -3,7 +3,7 @@
 from importlib.metadata import PackageNotFoundError, version
 
 try:
-    __version__ = version("enfusion-mcp-rj")
+    __version__ = version("enfusion-mcp")
 except PackageNotFoundError:  # pragma: no cover - editable install normally supplies metadata
     __version__ = "0.1.0a0"
 

@@ -16,7 +16,7 @@ from .models import CatalogEntry, VegetationCatalogOutput
 from .path_types import ResourceName
 
 CATALOG_SCHEMA_VERSION = 1
-CATALOG_VERSION = "rj-vegetation-v1-unverified"
+CATALOG_VERSION = "vegetation-v1-unverified"
 
 
 def _canonical_catalog_bytes(version: str, entries: tuple[CatalogEntry, ...]) -> bytes:

@@ -27,7 +27,7 @@ def _safe_env(tmp_path: Path) -> dict[str, str]:
         "ENFUSION_WORKBENCH_PORT": "5775",
         "ENFUSION_PROJECT_HOST_PATH": str(project),
         "ENFUSION_PROJECT_ENGINE_PATH": r"Z:\project",
-        "ENFUSION_ALLOWED_WORLD": "$thenewRJ:rj.ent",
+        "ENFUSION_ALLOWED_WORLD": "$myaddon:world.ent",
         "ENFUSION_SAFE_MODE": "1",
         "ENFUSION_STATE_DIR": str(state),
     }
@@ -36,7 +36,7 @@ def _safe_env(tmp_path: Path) -> dict[str, str]:
 def _stdio_parameters(tmp_path: Path) -> StdioServerParameters:
     root = Path(__file__).resolve().parents[1]
     return StdioServerParameters(
-        command=str(root / ".venv/bin/enfusion-mcp-rj"),
+        command=str(root / ".venv/bin/enfusion-mcp"),
         args=[],
         cwd=root,
         env=_safe_env(tmp_path),
@@ -134,7 +134,7 @@ async def test_legacy_initialize_and_stdout_stays_jsonrpc(tmp_path: Path) -> Non
 
 
 def test_runtime_has_no_model_vendor_imports() -> None:
-    source_root = Path(__file__).resolve().parents[1] / "src/enfusion_mcp_rj"
+    source_root = Path(__file__).resolve().parents[1] / "src/enfusion_mcp"
     banned = ("openai", "anthropic", "langchain", "langgraph", "codex", "claude")
     source = "\n".join(path.read_text() for path in source_root.glob("*.py")).lower()
     for name in banned:

@@ -23,7 +23,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Final
 
-from enfusion_mcp_rj.ledger import prepare_state_directory
+from enfusion_mcp.ledger import prepare_state_directory
 
 _DIGEST_LENGTH: Final = 64
 _DEFAULT_POLL_INTERVAL: Final = 0.01

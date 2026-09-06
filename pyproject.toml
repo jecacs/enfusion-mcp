@@ -3,7 +3,7 @@ requires = ["hatchling==1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "enfusion-mcp-rj"
+name = "enfusion-mcp"
 version = "0.1.0a0"
 description = "Safe, vendor-neutral Python MCP server for Arma Reforger Enfusion Workbench"
 readme = "README.md"
@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.scripts]
-enfusion-mcp-rj = "enfusion_mcp_rj.cli:main"
+enfusion-mcp = "enfusion_mcp.cli:main"
 
 [dependency-groups]
 dev = [
@@ -42,7 +42,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/enfusion_mcp_rj"]
+packages = ["src/enfusion_mcp"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"

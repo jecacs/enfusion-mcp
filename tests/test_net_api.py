@@ -9,7 +9,7 @@ from typing import cast
 
 import pytest
 
-from enfusion_mcp_rj.net_api import (
+from enfusion_mcp.net_api import (
     CONTENT_TYPE,
     MAX_PASCAL_BYTES,
     PROTOCOL_VERSION,
@@ -227,14 +227,14 @@ async def test_fragmented_tcp_response_and_request_contract() -> None:
 
     async with loopback_server(handler) as port:
         client = NetApiClient("127.0.0.1", port, client_id="Py Клиент", timeouts=short_timeouts())
-        result = await client.call("RJMCP_GetContext", {"mode": "read"})
+        result = await client.call("EnfusionMCP_GetContext", {"mode": "read"})
 
     assert result == {"message": "Привет 🌿"}
     assert observed == [
         (
             "Py Клиент",
             "JsonRPC",
-            {"APIFunc": "RJMCP_GetContext", "mode": "read"},
+            {"APIFunc": "EnfusionMCP_GetContext", "mode": "read"},
         )
     ]
 
@@ -307,7 +307,7 @@ async def test_bodyless_policy_is_endpoint_specific() -> None:
         client = NetApiClient("127.0.0.1", port, timeouts=short_timeouts())
         assert await client.call("BringModuleWindowToFront", {"ModuleName": "WorldEditor"}) is None
         with pytest.raises(NetApiError, match="empty payload"):
-            await client.call("RJMCP_GetContext")
+            await client.call("EnfusionMCP_GetContext")
 
 
 async def test_each_request_uses_a_fresh_connection() -> None:
@@ -378,7 +378,7 @@ async def test_mutation_timeout_after_send_is_unknown_outcome_and_not_retried() 
     async with loopback_server(handler) as port:
         client = NetApiClient("127.0.0.1", port, timeouts=timeouts)
         with pytest.raises(UnknownOutcomeError) as raised:
-            await client.call_mutation("RJMCP_VegetationApply", {})
+            await client.call_mutation("EnfusionMCP_VegetationApply", {})
     assert connection_count == 1
     assert raised.value.code is NetApiErrorCode.UNKNOWN_OUTCOME
     assert raised.value.cause.code is NetApiErrorCode.TIMEOUT
@@ -397,7 +397,7 @@ async def test_lost_mutation_response_is_unknown_and_never_sends_second_batch() 
     async with loopback_server(handler) as port:
         client = NetApiClient("127.0.0.1", port, timeouts=short_timeouts())
         with pytest.raises(UnknownOutcomeError) as raised:
-            await client.call_mutation("RJMCP_VegetationApply", {})
+            await client.call_mutation("EnfusionMCP_VegetationApply", {})
     assert applied_batches == 1
     assert raised.value.cause.code is NetApiErrorCode.PROTOCOL_ERROR
 
@@ -414,7 +414,7 @@ async def test_mutation_endpoint_rejects_read_call_before_connect() -> None:
         client = NetApiClient("127.0.0.1", port, timeouts=short_timeouts())
         with pytest.raises(NetApiError, match="must use call_mutation") as raised:
             await client.call(
-                "RJMCP_VegetationApply",
+                "EnfusionMCP_VegetationApply",
                 {},
                 retry_policy=ReadRetryPolicy(max_attempts=2),
             )
@@ -522,7 +522,7 @@ async def test_mutation_send_timeout_is_unknown_outcome(
         ),
     )
     with pytest.raises(UnknownOutcomeError) as raised:
-        await client.call_mutation("RJMCP_VegetationApply", {})
+        await client.call_mutation("EnfusionMCP_VegetationApply", {})
     assert fake_writer.write_called is True
     assert fake_writer.closed is True
     assert raised.value.cause.code is NetApiErrorCode.TIMEOUT
@@ -544,7 +544,7 @@ async def test_closed_connection_before_send_is_safe_pre_send_failure(
     monkeypatch.setattr(asyncio, "open_connection", fake_connect)
     client = NetApiClient("127.0.0.1", 1, timeouts=short_timeouts())
     with pytest.raises(NetApiError) as raised:
-        await client.call_mutation("RJMCP_VegetationApply", {})
+        await client.call_mutation("EnfusionMCP_VegetationApply", {})
     assert not isinstance(raised.value, UnknownOutcomeError)
     assert raised.value.code is NetApiErrorCode.CONNECTION_LOST
     assert raised.value.phase is NetApiPhase.PRE_SEND
@@ -567,7 +567,7 @@ async def test_unexpected_post_send_failure_is_unknown_outcome(
 
         monkeypatch.setattr(client, "_receive", fail_unexpectedly)
         with pytest.raises(UnknownOutcomeError) as raised:
-            await client.call_mutation("RJMCP_VegetationApply", {})
+            await client.call_mutation("EnfusionMCP_VegetationApply", {})
 
     assert raised.value.cause.code is NetApiErrorCode.PROTOCOL_ERROR
     assert raised.value.cause.send_started is True
@@ -619,14 +619,14 @@ async def test_reconcile_mode_is_read_only_but_strictly_shaped(
     client = NetApiClient("127.0.0.1", 1, timeouts=short_timeouts())
     with pytest.raises(NetApiError):
         await client.call_reconcile(
-            "RJMCP_VegetationApply",
+            "EnfusionMCP_VegetationApply",
             {"mode": "reconcile"},
             retry_policy=ReadRetryPolicy(max_attempts=2),
         )
     assert connection_count == 2
 
     with pytest.raises(NetApiError, match="requires"):
-        await client.call_reconcile("RJMCP_VegetationApply", {"mode": "create"})
+        await client.call_reconcile("EnfusionMCP_VegetationApply", {"mode": "create"})
 
 
 async def test_connection_refused_has_manual_start_guidance(

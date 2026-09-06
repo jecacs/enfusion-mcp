@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from enfusion_mcp_rj.ledger import (
+from enfusion_mcp.ledger import (
     DATABASE_FILENAME,
     InvalidOperationTransitionError,
     Ledger,
@@ -42,7 +42,7 @@ def _plan_payload(*, seed: int = 0) -> dict[str, object]:
         "algorithmVersion": "pcg32-v1",
         "count": 8,
         "seed": seed,
-        "worldPath": "$thenewRJ:rj.ent",
+        "worldPath": "$myaddon:world.ent",
     }
 
 

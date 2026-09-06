@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from enfusion_mcp_rj.locking import (
+from enfusion_mcp.locking import (
     InterProcessFileLock,
     LockError,
     LockMode,
@@ -22,12 +22,12 @@ from enfusion_mcp_rj.locking import (
 )
 
 
-def _scope(root: Path, *, world: str = "$thenewRJ:rj.ent") -> TargetScope:
+def _scope(root: Path, *, world: str = "$myaddon:world.ent") -> TargetScope:
     return TargetScope.derive(
         workbench_host="127.0.0.1",
         workbench_port=5775,
         project_host_path=root / "project with spaces" / "карта",
-        project_engine_path=r"C:\users\steamuser\Documents\My Games\new_rj",
+        project_engine_path=r"C:\users\steamuser\Documents\My Games\ExampleMap",
         world=world,
     )
 
@@ -57,7 +57,7 @@ def test_target_scope_is_stable_specific_and_never_leaks_input_into_filename(
 ) -> None:
     first = _scope(tmp_path)
     second = _scope(tmp_path)
-    other_world = _scope(tmp_path, world="$thenewRJ:other.ent")
+    other_world = _scope(tmp_path, world="$myaddon:other.ent")
 
     assert first == second
     assert first.digest != other_world.digest
@@ -65,7 +65,7 @@ def test_target_scope_is_stable_specific_and_never_leaks_input_into_filename(
     assert len(first.digest) == 64
     assert first.lock_filename == f"target-{first.endpoint_digest}.lock"
     assert "карта" not in first.lock_filename
-    assert "$thenewRJ" not in first.lock_filename
+    assert "$myaddon" not in first.lock_filename
     assert "projectHostPath" in first.canonical
     assert "projectHostPath" not in first.endpoint_canonical
 

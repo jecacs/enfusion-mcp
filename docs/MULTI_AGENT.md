@@ -23,9 +23,10 @@ NFS and other remote filesystems are unsupported for SQLite + `flock`.
 V1 treats the parent of the explicitly configured `ENFUSION_STATE_DIR` as an
 operator-trusted storage root. Ledger checks then protect the state leaf against
 symlink/type/ownership/mode escapes; they do not independently decide which
-global directory the operator may authorize. Shipped client examples pin the
-state path to this repository's `.state`, and the development workflow performs
-no writes elsewhere.
+global directory the operator may authorize. Shipped client examples use the
+server checkout's `.state` directory as a placeholder. Choose a local path
+outside the addon and Proton prefix, and configure every cooperating client
+with that same canonical path.
 
 ## Layers of coordination
 
@@ -48,6 +49,14 @@ The lock file is stable and must not be unlinked/recreated while processes are
 running because `flock` attaches to an inode.
 
 ## Durable operation semantics
+
+The map-independent revision changes package, executable, handler, and protocol
+identities. Resolve outstanding operations with the matching previous
+runtime/bridge before upgrading, then stop all cooperating clients and back up
+their shared state. Update every client and installed handler together. Old
+plans keep their original identity and are not interchangeable with new plans;
+deleting state or choosing a fresh directory cannot resolve an old outcome.
+See [ENFORCE_BRIDGE.md](ENFORCE_BRIDGE.md#upgrading-an-existing-installation).
 
 When upgrading from schema 1, first stop **all old Python MCP processes** and
 back up the shared state directory while no process holds it open. Restart every

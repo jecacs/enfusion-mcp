@@ -36,7 +36,7 @@ TEARDOWN_TIMEOUT_SECONDS: Final = 0.25
 # built-in endpoint as having no response body.  Custom handlers in the safe
 # profile are deliberately not included here.
 DOCUMENTED_BODYLESS_ENDPOINTS: Final = frozenset({"BringModuleWindowToFront"})
-MUTATION_ENDPOINTS: Final = frozenset({"RJMCP_VegetationApply"})
+MUTATION_ENDPOINTS: Final = frozenset({"EnfusionMCP_VegetationApply"})
 
 JsonScalar: TypeAlias = bool | int | float | str | None
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -295,7 +295,7 @@ class NetApiClient:
         host: str,
         port: int,
         *,
-        client_id: str = "EnfusionMCP-RJ",
+        client_id: str = "EnfusionMCP",
         timeouts: NetApiTimeouts | None = None,
     ) -> None:
         if not isinstance(host, str) or not host or "\x00" in host:

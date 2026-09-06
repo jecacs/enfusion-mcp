@@ -1,9 +1,11 @@
 # Independent review corrections
 
 Review baseline: `1a633cb67d82a574dc26297377cf51f57470759c`.
-Correction date: 2026-09-06. Scope: the user authorized all reviewed corrections
-except Windows path normalization. No active-project, Proton, Workbench, or
-port-5775 access is part of this revision.
+Historical correction report dated 2026-09-06. Its verification results and
+manifest describe the commits below, not the current source. Local paths and
+package identifiers are generalized for public documentation. Windows path
+normalization was outside this review's scope. No active-project, Proton,
+Workbench, or port-5775 access was part of the revision.
 
 Implementation commits: `8a95e62` (lock deadlines) and `341142b` (durable
 mutation policy, planner/service validation, bridge transforms and regressions).
@@ -44,7 +46,7 @@ as a historical report; its old handler hashes are not the current manifest.
   Timed-out writers wake readers instead of leaving them behind stale writer
   preference.
 
-The bridge build fingerprint is `rjmcp-bridge-v1-review-fixes`; old plans with
+The corrected revision used bridge build fingerprint `enfusion-mcp-bridge-v1-review-fixes`; old plans with
 the old bridge build remain stale. The planner algorithm and draw sequence are
 unchanged. Its golden hash changes because the bridge build is part of the
 immutable plan.
@@ -61,14 +63,15 @@ the required exact vegetation prefabs. `MUTATION_IMPLEMENTATION_VALIDATED`
 remains false. This revision is staged and cannot enable live creation simply
 by changing client configuration. No handler was installed.
 
-Windows trailing-dot/path normalization findings are intentionally deferred at
-the user's instruction; `path_types.py` and its tests are unchanged. Native
-Linux/Proton remains the runtime target.
+Windows trailing-dot/path normalization findings were outside the scope of
+this correction; `path_types.py` and its tests were unchanged in that revision.
+Native Linux/Proton remains the runtime target.
 
-The calculated, unread installation destination and backup/collision procedure
-remain in `BRIDGE_INSTALLATION_PLAN.md`. Installation requires the user's exact
-permission phrase; live access and application remain separate steps. Do not
-delete state or switch state directories to bypass unresolved operations.
+The reusable installation and backup/collision procedure is in
+[BRIDGE_INSTALLATION_PLAN.md](BRIDGE_INSTALLATION_PLAN.md). Review the exact
+files and destination before installation; review and approve a concrete plan
+before application. Do not delete state or switch state directories to bypass
+unresolved operations.
 
 Before deploying this revision to any existing MCP clients, stop all old Python
 server processes, back up the shared state while they are stopped, and restart
@@ -98,13 +101,13 @@ All checks passed!; exit 0
 .venv/bin/mypy
 Success: no issues found in 28 source files; exit 0
 
-UV_CACHE_DIR=/tmp/enfusion-mcp-rj-review-uv-cache uv lock --check --offline
+UV_CACHE_DIR=/tmp/enfusion-mcp-review-uv-cache uv lock --check --offline
 Resolved 90 packages; exit 0
 
-.venv/bin/pip-audit --progress-spinner off --requirement /tmp/enfusion-mcp-rj-fixes-prod.txt
+.venv/bin/pip-audit --progress-spinner off --requirement /tmp/enfusion-mcp-fixes-prod.txt
 No known vulnerabilities found; exit 0
 
-.venv/bin/pip-audit --progress-spinner off --requirement /tmp/enfusion-mcp-rj-fixes-full.txt
+.venv/bin/pip-audit --progress-spinner off --requirement /tmp/enfusion-mcp-fixes-full.txt
 No known vulnerabilities found; exit 0
 ```
 
@@ -112,12 +115,12 @@ Package validation used the existing locked local build tools, without network
 or build isolation:
 
 ```text
-UV_CACHE_DIR=/tmp/enfusion-mcp-rj-review-uv-cache uv build --no-build-isolation --offline --out-dir /tmp/enfusion-mcp-rj-fixes-build.GJhedm
-Successfully built enfusion_mcp_rj-0.1.0a0.tar.gz
-Successfully built enfusion_mcp_rj-0.1.0a0-py3-none-any.whl
+UV_CACHE_DIR=/tmp/enfusion-mcp-review-uv-cache uv build --no-build-isolation --offline --out-dir /tmp/enfusion-mcp-fixes-build.GJhedm
+Successfully built enfusion_mcp-0.1.0a0.tar.gz
+Successfully built enfusion_mcp-0.1.0a0-py3-none-any.whl
 exit 0
 
-.venv/bin/twine check /tmp/enfusion-mcp-rj-fixes-build.GJhedm/*
+.venv/bin/twine check /tmp/enfusion-mcp-fixes-build.GJhedm/*
 wheel: PASSED; sdist: PASSED; exit 0
 ```
 
@@ -133,21 +136,23 @@ additional pytest cases cover the observed failures and adjacent uncertainty,
 transaction-contention, model-contract and lock-cancellation paths. Static
 Enforce tests remain 36 source/contract checks, not runtime engine tests.
 
-## Current staged manifest
+## Historical staged manifest
 
-Calculated destination, not inspected or resolved:
+These sizes/hashes apply only to the correction commits above. Calculate fresh
+hashes before installing the current source. The original unread destination is
+represented by this placeholder:
 
 ```text
-/home/jecacs/.local/share/Steam/steamapps/compatdata/1874910/pfx/drive_c/users/steamuser/Documents/My Games/ArmaReforgerWorkbench/addons/new_rj/Scripts/WorkbenchGame/RJMCP
+/path/to/addon/Scripts/WorkbenchGame/EnfusionMCP
 ```
 
-| Source under `bridge/Scripts/WorkbenchGame/RJMCP/` | Bytes | SHA-256 |
+| Source under `bridge/Scripts/WorkbenchGame/EnfusionMCP/` | Bytes | SHA-256 |
 |---|---:|---|
-| `RJMCP_GetContext.c` | 5503 | `0a85a537d27095132060ea54f6594063b07d371f4a0407470df1ad60f9830d88` |
-| `RJMCP_TerrainSample.c` | 6575 | `738318ebcf0d60b54c99578792a5da180aad71b6d66c2749f44b6797bf024dfd` |
-| `RJMCP_VegetationApply.c` | 24489 | `95152f33db112f9a50271da262827b146fa12c309cfbbe46a33e8c04dc981d57` |
+| `EnfusionMCP_GetContext.c` | 5503 | `0a85a537d27095132060ea54f6594063b07d371f4a0407470df1ad60f9830d88` |
+| `EnfusionMCP_TerrainSample.c` | 6575 | `738318ebcf0d60b54c99578792a5da180aad71b6d66c2749f44b6797bf024dfd` |
+| `EnfusionMCP_VegetationApply.c` | 24489 | `95152f33db112f9a50271da262827b146fa12c309cfbbe46a33e8c04dc981d57` |
 
-Only those three filenames are proposed for a future copy to the destination.
-Existing-file collisions remain unknown because the active project was not
-read. No files have been installed, overwritten or removed there. The earlier
-manifest in `CHECKPOINT_C.md` applies only to its historical source revision.
+Only these three handler roles were proposed for installation at the time.
+Existing-file collisions were unknown because the active project was not read.
+No files were installed, overwritten, or removed there. The earlier manifest in
+`CHECKPOINT_C.md` applies only to its own historical source revision.

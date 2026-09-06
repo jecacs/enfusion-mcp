@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from enfusion_mcp_rj import __version__
-from enfusion_mcp_rj.cli import main
+from enfusion_mcp import __version__
+from enfusion_mcp.cli import main
 
 
 def test_distribution_version_is_available() -> None:

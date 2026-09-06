@@ -7,7 +7,7 @@
  *
  * Staged narrow vegetation apply/reconcile endpoint.
  * UNVERIFIED_LIVE until ValidateScripts and the explicit live acceptance flow.
- * APIFunc: RJMCP_VegetationApply
+ * APIFunc: EnfusionMCP_VegetationApply
  *
  * The compiled production allowlist is intentionally empty at Checkpoint C,
  * and MUTATION_IMPLEMENTATION_VALIDATED is independently false. Create remains
@@ -15,7 +15,7 @@
  * compiled and passed the explicit live create/reconcile/Undo validation flow.
  */
 
-class RJMCP_VegetationApplyRequest : JsonApiStruct
+class EnfusionMCP_VegetationApplyRequest : JsonApiStruct
 {
 	string mode;
 	string planId;
@@ -39,7 +39,7 @@ class RJMCP_VegetationApplyRequest : JsonApiStruct
 	ref array<float> yaw;
 	ref array<float> scale;
 
-	void RJMCP_VegetationApplyRequest()
+	void EnfusionMCP_VegetationApplyRequest()
 	{
 		// Zero is valid for these fields, so use invalid missing-value sentinels.
 		subscene = -1;
@@ -75,7 +75,7 @@ class RJMCP_VegetationApplyRequest : JsonApiStruct
 	}
 }
 
-class RJMCP_VegetationApplyResponse : JsonApiStruct
+class EnfusionMCP_VegetationApplyResponse : JsonApiStruct
 {
 	string status;
 	string errorCode;
@@ -93,7 +93,7 @@ class RJMCP_VegetationApplyResponse : JsonApiStruct
 	bool rollbackVerified;
 	ref array<string> m_aEntityNames;
 
-	void RJMCP_VegetationApplyResponse()
+	void EnfusionMCP_VegetationApplyResponse()
 	{
 		RegV("status");
 		RegV("errorCode");
@@ -109,9 +109,9 @@ class RJMCP_VegetationApplyResponse : JsonApiStruct
 		RegV("matchingCount");
 		RegV("createdCount");
 		RegV("rollbackVerified");
-		bridgeProtocolVersion = "rjmcp-bridge-v1";
-		bridgeBuildId = "rjmcp-bridge-v1-review-fixes";
-		catalogHash = "09acc4254f9f2adfc5b339b1160006526f54d3668c2016442d58609016b1d596";
+		bridgeProtocolVersion = "enfusion-mcp-bridge-v1";
+		bridgeBuildId = "enfusion-mcp-bridge-v1-map-agnostic";
+		catalogHash = "fe7a5214aebc0cfc171d5b0b218fddeb43c75303a5ae94cc77457c8b7334ee06";
 		state = "REJECTED";
 		m_aEntityNames = {};
 	}
@@ -125,11 +125,10 @@ class RJMCP_VegetationApplyResponse : JsonApiStruct
 	}
 }
 
-class RJMCP_VegetationApply : NetApiHandler
+class EnfusionMCP_VegetationApply : NetApiHandler
 {
-	static const string ALLOWED_WORLD = "$thenewRJ:rj.ent";
-	static const string BRIDGE_BUILD_ID = "rjmcp-bridge-v1-review-fixes";
-	static const string CATALOG_HASH = "09acc4254f9f2adfc5b339b1160006526f54d3668c2016442d58609016b1d596";
+	static const string BRIDGE_BUILD_ID = "enfusion-mcp-bridge-v1-map-agnostic";
+	static const string CATALOG_HASH = "fe7a5214aebc0cfc171d5b0b218fddeb43c75303a5ae94cc77457c8b7334ee06";
 	// This gate must remain false until the staged source compiles and the exact
 	// create/reconcile/Undo workflow is explicitly validated in live Workbench.
 	static const bool MUTATION_IMPLEMENTATION_VALIDATED = false;
@@ -138,7 +137,7 @@ class RJMCP_VegetationApply : NetApiHandler
 	static const float SCALE_EPSILON = 0.000001;
 
 	static void Fail(
-		RJMCP_VegetationApplyResponse response,
+		EnfusionMCP_VegetationApplyResponse response,
 		string code,
 		string text,
 		string state = "REJECTED"
@@ -224,7 +223,7 @@ class RJMCP_VegetationApply : NetApiHandler
 
 	static string ExpectedEntityName(string planId, int index)
 	{
-		return "RJMCP_" + planId + "_" + index.ToString();
+		return "EnfusionMCP_" + planId + "_" + index.ToString();
 	}
 
 	static bool IsAllowedPrefab(string prefab)
@@ -234,7 +233,7 @@ class RJMCP_VegetationApply : NetApiHandler
 		return false;
 	}
 
-	static bool CardinalityIsExact(RJMCP_VegetationApplyRequest req)
+	static bool CardinalityIsExact(EnfusionMCP_VegetationApplyRequest req)
 	{
 		return req.prefabs && req.prefabs.Count() == req.count
 			&& req.entityNames && req.entityNames.Count() == req.count
@@ -248,7 +247,7 @@ class RJMCP_VegetationApply : NetApiHandler
 	static bool EntityMatches(
 		WorldEditorAPI api,
 		IEntitySource source,
-		RJMCP_VegetationApplyRequest req,
+		EnfusionMCP_VegetationApplyRequest req,
 		int index,
 		int layerId
 	)
@@ -348,7 +347,7 @@ class RJMCP_VegetationApply : NetApiHandler
 
 	static bool VerifyExactBatch(
 		WorldEditorAPI api,
-		RJMCP_VegetationApplyRequest req,
+		EnfusionMCP_VegetationApplyRequest req,
 		int layerId,
 		out int matchingCount
 	)
@@ -368,13 +367,13 @@ class RJMCP_VegetationApply : NetApiHandler
 
 	override JsonApiStruct GetRequest()
 	{
-		return new RJMCP_VegetationApplyRequest();
+		return new EnfusionMCP_VegetationApplyRequest();
 	}
 
 	override JsonApiStruct GetResponse(JsonApiStruct request)
 	{
-		RJMCP_VegetationApplyRequest req = RJMCP_VegetationApplyRequest.Cast(request);
-		RJMCP_VegetationApplyResponse response = new RJMCP_VegetationApplyResponse();
+		EnfusionMCP_VegetationApplyRequest req = EnfusionMCP_VegetationApplyRequest.Cast(request);
+		EnfusionMCP_VegetationApplyResponse response = new EnfusionMCP_VegetationApplyResponse();
 		if (!req)
 		{
 			Fail(response, "INVALID_REQUEST", "Request could not be decoded");
@@ -406,9 +405,9 @@ class RJMCP_VegetationApply : NetApiHandler
 			Fail(response, "CATALOG_MISMATCH", "Python and bridge catalog hashes differ");
 			return response;
 		}
-		if (req.worldPath != ALLOWED_WORLD)
+		if (req.worldPath == "")
 		{
-			Fail(response, "WORLD_NOT_ALLOWED", "Request world is not allowlisted");
+			Fail(response, "INVALID_WORLD", "Request must identify the world used for planning");
 			return response;
 		}
 		if (req.subscene < 0)
@@ -462,6 +461,7 @@ class RJMCP_VegetationApply : NetApiHandler
 
 		string actualWorld;
 		api.GetWorldPath(actualWorld);
+		// Plans are bound to the exact open world and subscene, regardless of map.
 		if (actualWorld != req.worldPath || api.GetCurrentSubScene() != req.subscene)
 		{
 			Fail(response, "STALE_WORLD", "World or subscene changed after planning");
@@ -651,7 +651,7 @@ class RJMCP_VegetationApply : NetApiHandler
 			}
 		}
 
-		if (!api.BeginEntityAction("RJMCP vegetation " + req.planId.Substring(0, 12)))
+		if (!api.BeginEntityAction("EnfusionMCP vegetation " + req.planId.Substring(0, 12)))
 		{
 			Fail(response, "BEGIN_ACTION_FAILED", "BeginEntityAction returned false");
 			return response;
@@ -733,7 +733,7 @@ class RJMCP_VegetationApply : NetApiHandler
 		if (createFailed)
 		{
 			bool cleanupSucceeded = CleanupCreated(api, created);
-			bool actionEnded = api.EndEntityAction("RJMCP vegetation rollback");
+			bool actionEnded = api.EndEntityAction("EnfusionMCP vegetation rollback");
 			if (!actionEnded)
 			{
 				response.rollbackVerified = false;
@@ -750,7 +750,7 @@ class RJMCP_VegetationApply : NetApiHandler
 			return response;
 		}
 
-		bool actionEnded = api.EndEntityAction("RJMCP vegetation " + req.planId.Substring(0, 12));
+		bool actionEnded = api.EndEntityAction("EnfusionMCP vegetation " + req.planId.Substring(0, 12));
 		if (!actionEnded)
 		{
 			response.rollbackVerified = false;

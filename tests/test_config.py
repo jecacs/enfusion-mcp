@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from enfusion_mcp_rj.config import (
+from enfusion_mcp.config import (
     REQUIRED_ENVIRONMENT,
     ConfigurationError,
     ServerConfig,
     Settings,
 )
-from enfusion_mcp_rj.path_types import EnginePath, HostPath, ResourceName
+from enfusion_mcp.path_types import EnginePath, HostPath, ResourceName
 
 
 class _StringSubclass(str):
@@ -44,7 +44,7 @@ def valid_environment(tmp_path: Path) -> Iterator[dict[str, str]]:
         "ENFUSION_WORKBENCH_PORT": "5775",
         "ENFUSION_PROJECT_HOST_PATH": os.fspath(project),
         "ENFUSION_PROJECT_ENGINE_PATH": r"C:\users\steamuser\Моя карта",
-        "ENFUSION_ALLOWED_WORLD": "$thenewRJ:rj.ent",
+        "ENFUSION_ALLOWED_WORLD": "$myaddon:world.ent",
         "ENFUSION_SAFE_MODE": "1",
         "ENFUSION_STATE_DIR": os.fspath(state),
     }
@@ -64,7 +64,7 @@ def test_valid_safe_configuration_is_frozen_and_typed(
     assert config.project_engine_path == EnginePath(
         valid_environment["ENFUSION_PROJECT_ENGINE_PATH"]
     )
-    assert config.allowed_world == ResourceName("$thenewRJ:rj.ent")
+    assert config.allowed_world == ResourceName("$myaddon:world.ent")
     assert config.safe_mode is True
     assert config.state_dir == HostPath(valid_environment["ENFUSION_STATE_DIR"])
     with pytest.raises(AttributeError):
@@ -77,6 +77,59 @@ def test_dataclass_replace_cannot_bypass_safe_runtime_invariants(
     config = ServerConfig.from_env(valid_environment)
     with pytest.raises(ConfigurationError, match="safe profile requires exactly"):
         replace(config, workbench_host="localhost")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "world",
+    [
+        "$myaddon:world.ent",
+        "$another_project:Worlds/Island.ent",
+        "{0123456789ABCDEF}Worlds/Terrain.ent",
+    ],
+)
+def test_target_world_is_explicitly_configurable(
+    valid_environment: dict[str, str],
+    world: str,
+) -> None:
+    original = ServerConfig.from_env(valid_environment)
+    valid_environment["ENFUSION_ALLOWED_WORLD"] = world
+
+    configured = ServerConfig.from_env(valid_environment)
+
+    assert configured.allowed_world == ResourceName(world)
+    assert replace(original, allowed_world=ResourceName(world)) == configured
+
+
+@pytest.mark.parametrize(
+    "world",
+    [
+        "world.ent",
+        "/project/world.ent",
+        r"C:\project\world.ent",
+        "$myaddon:../world.ent",
+        "$myaddon:/world.ent",
+        "$myaddon:world.ent\x00suffix",
+    ],
+)
+def test_target_world_must_be_a_valid_resource_name(
+    valid_environment: dict[str, str],
+    world: str,
+) -> None:
+    valid_environment["ENFUSION_ALLOWED_WORLD"] = world
+
+    with pytest.raises(ConfigurationError) as captured:
+        ServerConfig.from_env(valid_environment)
+    assert captured.value.field == "ENFUSION_ALLOWED_WORLD"
+
+
+def test_direct_config_requires_typed_target_world(
+    valid_environment: dict[str, str],
+) -> None:
+    config = ServerConfig.from_env(valid_environment)
+
+    with pytest.raises(ConfigurationError, match="must be a ResourceName") as captured:
+        replace(config, allowed_world="$myaddon:world.ent")  # type: ignore[arg-type]
+    assert captured.value.field == "allowed_world"
 
 
 @pytest.mark.parametrize(
@@ -158,8 +211,6 @@ def test_unrelated_process_environment_variables_remain_allowed(
         ("ENFUSION_WORKBENCH_HOST", "::1"),
         ("ENFUSION_WORKBENCH_PORT", "5776"),
         ("ENFUSION_WORKBENCH_PORT", "05775"),
-        ("ENFUSION_ALLOWED_WORLD", "$other:rj.ent"),
-        ("ENFUSION_ALLOWED_WORLD", "$thenewRJ:other.ent"),
         ("ENFUSION_SAFE_MODE", "0"),
         ("ENFUSION_SAFE_MODE", "true"),
     ],
@@ -293,7 +344,7 @@ def test_from_env_without_argument_reads_process_environment(
     for name, value in valid_environment.items():
         monkeypatch.setenv(name, value)
 
-    assert ServerConfig.from_env().allowed_world == ResourceName("$thenewRJ:rj.ent")
+    assert ServerConfig.from_env().allowed_world == ResourceName("$myaddon:world.ent")
 
 
 def test_client_or_agent_identity_is_not_required(valid_environment: dict[str, str]) -> None:

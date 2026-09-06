@@ -9,17 +9,17 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from enfusion_mcp_rj.bridge_models import BRIDGE_BUILD_ID, BRIDGE_PROTOCOL_VERSION
-from enfusion_mcp_rj.catalog import VegetationCatalog
-from enfusion_mcp_rj.ledger import canonical_plan_json
-from enfusion_mcp_rj.models import (
+from enfusion_mcp.bridge_models import BRIDGE_BUILD_ID, BRIDGE_PROTOCOL_VERSION
+from enfusion_mcp.catalog import VegetationCatalog
+from enfusion_mcp.ledger import canonical_plan_json
+from enfusion_mcp.models import (
     CatalogEntry,
     PaletteItem,
     TargetLayer,
     Vec3,
     VegetationPlanInput,
 )
-from enfusion_mcp_rj.planner import (
+from enfusion_mcp.planner import (
     ALGORITHM_VERSION,
     COORDINATE_SCALE,
     MAX_CANDIDATES,
@@ -96,7 +96,7 @@ def _context(
 ) -> PlanningContext:
     effective_catalog = _catalog() if catalog is None else catalog
     return PlanningContext(
-        world_path="$thenewRJ:rj.ent",
+        world_path="$myaddon:world.ent",
         mode="edit",
         current_subscene=7,
         current_layer_id=42,
@@ -379,7 +379,7 @@ def test_requested_target_layer_must_already_be_active() -> None:
 
 def test_palette_must_be_an_exact_subset_of_verified_matching_catalog() -> None:
     catalog = _catalog()
-    invalid_request = _request(palette=[PaletteItem(prefab="$thenewRJ:Bush A.et", weight=1.0)])
+    invalid_request = _request(palette=[PaletteItem(prefab="$myaddon:Bush A.et", weight=1.0)])
 
     with pytest.raises(CatalogValidationError) as captured:
         prepare_vegetation_plan(_context(catalog=catalog), invalid_request, catalog)
@@ -937,7 +937,7 @@ def test_canonical_plan_is_fixed_point_complete_and_entity_names_are_derived() -
     assert hashlib.sha256(plan.canonical_json.encode()).hexdigest() == plan.plan_id
     assert payload["algorithmVersion"] == ALGORITHM_VERSION
     assert payload["schemaVersion"] == PLAN_SCHEMA_VERSION
-    assert payload["context"]["worldPath"] == "$thenewRJ:rj.ent"
+    assert payload["context"]["worldPath"] == "$myaddon:world.ent"
     assert payload["context"]["currentSubscene"] == 7
     assert payload["shape"]["name"] == "Посадочная Shape"
     assert payload["shape"]["pointsWorldUm"][1]["z"] == 30 * COORDINATE_SCALE
@@ -950,7 +950,7 @@ def test_canonical_plan_is_fixed_point_complete_and_entity_names_are_derived() -
     assert [item.entity_name for item in plan.placements] == [
         entity_name(plan.plan_id, index) for index in range(len(plan.placements))
     ]
-    assert plan.placements[0].entity_name == f"RJMCP_{plan.plan_id}_0"
+    assert plan.placements[0].entity_name == f"EnfusionMCP_{plan.plan_id}_0"
     assert plan.as_output().mutated_workbench is False
 
 
@@ -1037,4 +1037,4 @@ def test_canonical_plan_has_a_golden_sha256() -> None:
         created_at=CREATED_AT,
     )
 
-    assert plan.plan_id == "57b736e954aace6fc45b532aebd8c78d81bd197db8e3bf751cfc4b87c0a9dc70"
+    assert plan.plan_id == "eef04e6ba3066c329209ad4489a5e4f9fa34835bf39608698cacc5a42f5ffac8"

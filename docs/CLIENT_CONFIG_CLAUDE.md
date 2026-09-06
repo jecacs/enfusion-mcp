@@ -4,28 +4,31 @@ Current Anthropic documentation describes project-scoped `.mcp.json` servers
 with `command`, `args`, and `env`, and asks the user to approve project servers.
 See [Claude Code MCP](https://docs.anthropic.com/en/docs/claude-code/mcp).
 
-This is a **post-permission deployment example**. Do not enable it during
-Checkpoint C: server startup resolves the configured Proton/project paths, and
-opening Claude or an IDE is not permission to inspect the active project.
+Replace every `/path/to/...` value and `C:\path\to\addon` with your actual
+deployment paths. The host and engine addon paths must resolve to the same
+directory through the configured Proton prefix. `$myaddon:world.ent` is an
+example: set `ENFUSION_ALLOWED_WORLD` to the exact resource name of your world.
+Server startup validates these paths; complete the
+[bridge setup](BRIDGE_INSTALLATION_PLAN.md) before using Workbench tools.
 
 ```json
 {
   "mcpServers": {
-    "enfusion-mcp-rj": {
+    "enfusion-mcp": {
       "type": "stdio",
-      "command": "/home/jecacs/work/arma/enfusion-mcp/.venv/bin/enfusion-mcp-rj",
+      "command": "/path/to/enfusion-mcp/.venv/bin/enfusion-mcp",
       "args": [],
       "env": {
         "ENFUSION_PLATFORM_MODE": "native-linux-proton",
         "ENFUSION_STEAM_TOOLS_APP_ID": "1874910",
-        "ENFUSION_PROTON_PREFIX": "/home/jecacs/.local/share/Steam/steamapps/compatdata/1874910/pfx",
+        "ENFUSION_PROTON_PREFIX": "/path/to/proton-prefix",
         "ENFUSION_WORKBENCH_HOST": "127.0.0.1",
         "ENFUSION_WORKBENCH_PORT": "5775",
-        "ENFUSION_PROJECT_HOST_PATH": "/home/jecacs/.local/share/Steam/steamapps/compatdata/1874910/pfx/drive_c/users/steamuser/Documents/My Games/ArmaReforgerWorkbench/addons/new_rj",
-        "ENFUSION_PROJECT_ENGINE_PATH": "C:\\users\\steamuser\\Documents\\My Games\\ArmaReforgerWorkbench\\addons\\new_rj",
-        "ENFUSION_ALLOWED_WORLD": "$thenewRJ:rj.ent",
+        "ENFUSION_PROJECT_HOST_PATH": "/path/to/addon",
+        "ENFUSION_PROJECT_ENGINE_PATH": "C:\\path\\to\\addon",
+        "ENFUSION_ALLOWED_WORLD": "$myaddon:world.ent",
         "ENFUSION_SAFE_MODE": "1",
-        "ENFUSION_STATE_DIR": "/home/jecacs/work/arma/enfusion-mcp/.state"
+        "ENFUSION_STATE_DIR": "/path/to/enfusion-mcp/.state"
       }
     }
   }

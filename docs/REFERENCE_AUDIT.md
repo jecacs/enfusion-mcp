@@ -1,16 +1,15 @@
 # Read-only upstream reference audit
 
-Audit date: 2026-09-05. Reference checkout:
-`../govno-enfusion-mcp`, branch `feature/linux-proton-safe-vegetation`, commit
-`0acfa884228477043c6b4c2b8c7f0c270d648398`. Its working tree was clean before
-and after inspection. No npm install, build, test, formatter, or audit command
-was run there.
+Historical audit dated 2026-09-05 of reference commit
+`0acfa884228477043c6b4c2b8c7f0c270d648398`. Findings and source line references
+below apply to that revision, not to the current upstream. The reference
+working tree was clean before and after inspection; no npm install, build,
+test, formatter, or audit command was run there.
 
-The checkout's configured `origin` is `git@github.com:jecacs/enfusion-mcp.git`,
-not the claimed upstream. Provenance is instead supported by
-`package.json:45-50` and `README.md:183-185`, which identify
-<https://github.com/steffenbk/enfusion-mcp-BK>, plus the commit authorship. Its
-complete MIT license is at `LICENSE:1-20` and names copyright (c) 2025
+Provenance was checked using `package.json:45-50`, `README.md:183-185`, and
+commit authorship, identifying
+[enfusion-mcp-BK](https://github.com/steffenbk/enfusion-mcp-BK). Its complete MIT
+license was at `LICENSE:1-20` and named copyright (c) 2025
 `enfusion-mcp contributors`.
 
 ## Architecture and dependency baseline
@@ -30,7 +29,7 @@ complete MIT license is at `LICENSE:1-20` and names copyright (c) 2025
   Node toolchain dependencies. `package.json:3` says version 0.12.0 while
   `package-lock.json:2-9` still says 0.7.0.
 
-The following values are historical information supplied by the user, not a
+The following values are historical operator-reported results, not a
 new run: at this same reference commit a prior `npm ci` reportedly installed
 173 packages and audited 174 after a network retry; npm summarized 16 findings
 (2 low, 1 moderate, 12 high, 1 critical); `npm run build` reportedly exited 0;
@@ -141,8 +140,8 @@ mode therefore treats the API as unauthenticated and enforces loopback.
 ### Portability and multi-process safety
 
 `tests/animation/integration-m151a2.test.ts:14-25` embeds
-`C:/Users/Steffen/.../TESTANIM` and reads it at suite initialization. It is not a
-portable fixture.
+a developer-specific absolute Windows project path and reads it at suite
+initialization. It is not a portable fixture.
 
 No SQLite ledger, plan/idempotency binding, `flock`, or interprocess mutex was
 found. The only deduplication is a process-local `launchPromise`

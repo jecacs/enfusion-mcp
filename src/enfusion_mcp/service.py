@@ -327,7 +327,7 @@ class SafeRuntimeService:
                 terrain_payload: dict[str, JsonValue] = {
                     "points": [{"x": query.x, "z": query.z} for query in prepared.terrain_queries]
                 }
-                raw_terrain = await self._client.call("RJMCP_TerrainSample", terrain_payload)
+                raw_terrain = await self._client.call("EnfusionMCP_TerrainSample", terrain_payload)
                 terrain_response = BridgeTerrainSampleResponse.model_validate(raw_terrain)
                 if terrain_response.bridge_protocol_version != BRIDGE_PROTOCOL_VERSION:
                     raise TerrainContractError(
@@ -508,8 +508,8 @@ class SafeRuntimeService:
 
     async def _fetch_context(self) -> BridgeContextResponse:
         payload = _object_payload(
-            await self._client.call("RJMCP_GetContext"),
-            "RJMCP_GetContext",
+            await self._client.call("EnfusionMCP_GetContext"),
+            "EnfusionMCP_GetContext",
         )
         return BridgeContextResponse.model_validate(payload)
 

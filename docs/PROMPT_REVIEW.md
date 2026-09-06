@@ -1,9 +1,8 @@
-# Review of the original implementation prompt
+# Design decisions and evidence limits
 
-The prompt is a strong security-oriented design brief, but it is not a fully
-self-consistent acceptance specification. The implementation adopts the
-following clarifications rather than silently promising properties that cannot
-yet be proven.
+These decisions record the implementation boundary established during the
+initial checkpoints. They distinguish source and simulated evidence from
+properties that require live Workbench validation.
 
 ## Accepted strengths
 
@@ -66,10 +65,8 @@ yet be proven.
 12. **Protocol success literal.** `Ok` is an upstream compatibility assumption
     until a permitted live capture confirms it. Golden tests use literal bytes
     and state their provenance.
-13. **Catalog/live-sequence dependency.** The prompt asks Checkpoint C to keep
-    an unproven production catalog empty, yet its first live sequence later
-    assumes that an 8–12-object production plan can already be made. Those
-    conditions cannot both hold. The current bridge is deliberately
+13. **Catalog/live-sequence dependency.** An empty, unverified production
+    catalog cannot produce a live vegetation plan. The current bridge is
     read-capable/create-disabled. After the first permissioned read-only
     validation, exact resources must be established and a second reviewed
     bridge/catalog revision (new build ID and catalog hash) must be installed
@@ -84,15 +81,15 @@ create path therefore remains independently hard-disabled after Checkpoint C.
 These properties require later permissioned validation before that gate can be
 changed and before any live mutation is acceptable.
 
-Likewise, Checkpoint C cannot inspect destination collisions while the active
-project is forbidden. Its report must say collision status is unknown, show the
-calculated destination and proposed files, and perform no read of that path.
+The initial checkpoints did not inspect an active addon, so their reports do
+not establish destination identity or the absence of file collisions. Actual
+installation must verify those properties for the chosen addon.
 
-The exact installation permission is not treated as permission to silently
-enable a later handler revision. A changed manifest/hash is shown again and
-requires a renewed explicit installation decision. Enabling create still does
-not authorize a mutation: the exact new plan must be shown and the user must
-then separately write `применяй`.
+Review the exact source files, hashes, and destination before installing a
+bridge revision. A changed revision requires a new installation decision.
+Enabling create does not authorize application: review and explicitly approve
+the exact new plan before mutation. No project-specific confirmation phrase is
+required. See [BRIDGE_INSTALLATION_PLAN.md](BRIDGE_INSTALLATION_PLAN.md).
 
 ## Evidence labels
 

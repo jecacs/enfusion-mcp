@@ -452,7 +452,7 @@ wheels = [
 ]
 
 [[package]]
-name = "enfusion-mcp-rj"
+name = "enfusion-mcp"
 version = "0.1.0a0"
 source = { editable = "." }
 dependencies = [

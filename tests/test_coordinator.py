@@ -10,12 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from enfusion_mcp_rj.bridge_models import (
+from enfusion_mcp.bridge_models import (
     BRIDGE_BUILD_ID,
     BRIDGE_PROTOCOL_VERSION,
     BridgeVegetationApplyRequest,
 )
-from enfusion_mcp_rj.coordinator import (
+from enfusion_mcp.coordinator import (
     VEGETATION_ENDPOINT,
     ApplyCoordinator,
     BridgeClient,
@@ -23,17 +23,17 @@ from enfusion_mcp_rj.coordinator import (
     CoordinatorErrorCode,
     ReconciliationClassification,
 )
-from enfusion_mcp_rj.ledger import Ledger, OperationRecord, OperationState
-from enfusion_mcp_rj.locking import TargetLockManager, TargetScope
-from enfusion_mcp_rj.models import Vec3
-from enfusion_mcp_rj.net_api import (
+from enfusion_mcp.ledger import Ledger, OperationRecord, OperationState
+from enfusion_mcp.locking import TargetLockManager, TargetScope
+from enfusion_mcp.models import Vec3
+from enfusion_mcp.net_api import (
     JsonValue,
     NetApiClient,
     NetApiError,
     NetApiErrorCode,
     NetApiPhase,
 )
-from enfusion_mcp_rj.planner import ALGORITHM_VERSION, validate_polygon
+from enfusion_mcp.planner import ALGORITHM_VERSION, validate_polygon
 
 _KEY_ONE = "11111111-1111-4111-8111-111111111111"
 _KEY_TWO = "22222222-2222-4222-8222-222222222222"
@@ -74,7 +74,7 @@ def _plan_payload(*, seed: int = 0, count: int = 2) -> dict[str, object]:
         "schemaVersion": 1,
         "catalog": {"hash": _CATALOG_HASH, "version": "synthetic-v1"},
         "context": {
-            "worldPath": "$thenewRJ:rj.ent",
+            "worldPath": "$myaddon:world.ent",
             "currentSubscene": 7,
             "currentLayerId": 42,
             "activeLayerPath": "MCP_Preview",
@@ -125,8 +125,8 @@ def _components(
         workbench_host="127.0.0.1",
         workbench_port=5775,
         project_host_path=root / "active-project",
-        project_engine_path=r"C:\users\steamuser\Documents\My Games\new_rj",
-        world="$thenewRJ:rj.ent",
+        project_engine_path=r"C:\users\steamuser\Documents\My Games\ExampleMap",
+        world="$myaddon:world.ent",
     )
     return ledger, locks, scope
 
@@ -172,7 +172,7 @@ def _context_response() -> dict[str, JsonValue]:
         "bridgeProtocolVersion": BRIDGE_PROTOCOL_VERSION,
         "bridgeBuildId": BRIDGE_BUILD_ID,
         "catalogHash": _CATALOG_HASH,
-        "worldPath": "$thenewRJ:rj.ent",
+        "worldPath": "$myaddon:world.ent",
         "mode": "edit",
         "currentSubscene": 7,
         "currentLayerId": 42,
@@ -215,7 +215,7 @@ class ScriptedBridge:
         params: Mapping[str, JsonValue] | None = None,
     ) -> JsonValue:
         self.read_calls.append((api_func, params))
-        if api_func != "RJMCP_GetContext":
+        if api_func != "EnfusionMCP_GetContext":
             raise ValueError(f"unexpected read endpoint: {api_func}")
         if self.context_error is not None:
             raise self.context_error
@@ -336,7 +336,7 @@ def _coordinator(
             bridge=bridge,
             expected_catalog_hash=_CATALOG_HASH,
             expected_prefabs=_ALLOWED_PREFABS,
-            expected_world_path="$thenewRJ:rj.ent",
+            expected_world_path="$myaddon:world.ent",
         ),
         ledger,
     )
@@ -357,7 +357,7 @@ class ProcessFileBridge:
         api_func: str,
         params: Mapping[str, JsonValue] | None = None,
     ) -> JsonValue:
-        if api_func != "RJMCP_GetContext" or params is not None:
+        if api_func != "EnfusionMCP_GetContext" or params is not None:
             raise ValueError("unexpected process bridge read request")
         self._log("context")
         return _context_response()
@@ -492,7 +492,7 @@ async def test_first_apply_uses_exact_trusted_flat_envelope_and_persists_applied
     assert result.state is OperationState.APPLIED
     assert result.created_count == 2
     assert not result.reconciled
-    assert bridge.read_calls == [("RJMCP_GetContext", None)]
+    assert bridge.read_calls == [("EnfusionMCP_GetContext", None)]
     assert len(bridge.mutation_calls) == 1
     assert bridge.reconcile_calls == []
     envelope = bridge.mutation_calls[0]
@@ -525,7 +525,7 @@ async def test_first_apply_uses_exact_trusted_flat_envelope_and_persists_applied
     assert envelope["operationId"] == ledger.get_operation(_KEY_ONE).idempotency_key
     assert envelope["bridgeBuildId"] == BRIDGE_BUILD_ID
     assert envelope["catalogHash"] == _CATALOG_HASH
-    assert envelope["worldPath"] == "$thenewRJ:rj.ent"
+    assert envelope["worldPath"] == "$myaddon:world.ent"
     assert envelope["subscene"] == 7
     assert envelope["targetLayer"] == "MCP_Preview"
     assert envelope["count"] == 2
@@ -536,8 +536,8 @@ async def test_first_apply_uses_exact_trusted_flat_envelope_and_persists_applied
     assert envelope["terrainYEpsilon"] == 0.02
     assert envelope["x"] == [10.0, 13.0]
     assert envelope["entityNames"] == [
-        f"RJMCP_{plan_id}_0",
-        f"RJMCP_{plan_id}_1",
+        f"EnfusionMCP_{plan_id}_0",
+        f"EnfusionMCP_{plan_id}_1",
     ]
     assert "placements" not in envelope
     assert "plannerOnlyMetadata" not in envelope
@@ -642,7 +642,7 @@ async def test_stale_new_apply_context_never_binds_or_mutates(
 
     assert captured.value.code is CoordinatorErrorCode.STALE_CONTEXT
     assert ledger.get_operation_for_plan(plan_id) is None
-    assert bridge.read_calls == [("RJMCP_GetContext", None)]
+    assert bridge.read_calls == [("EnfusionMCP_GetContext", None)]
     assert bridge.mutation_calls == []
     assert bridge.reconcile_calls == []
 
@@ -1123,7 +1123,7 @@ async def test_stored_prefab_outside_running_exact_catalog_never_reaches_bridge(
 
 @pytest.mark.parametrize(
     ("catalog_hash", "world_path"),
-    [("d" * 64, "$thenewRJ:rj.ent"), (_CATALOG_HASH, "$other:world.ent")],
+    [("d" * 64, "$myaddon:world.ent"), (_CATALOG_HASH, "$other:world.ent")],
 )
 async def test_running_server_identity_mismatch_stops_before_binding_or_bridge(
     tmp_path: Path,

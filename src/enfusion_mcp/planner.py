@@ -1,6 +1,6 @@
 """Pure deterministic vegetation planning.
 
-Algorithm contract (``rjmcp-pcg32-poisson-v1``)
+Algorithm contract (``enfusion-mcp-pcg32-poisson-v1``)
 ================================================
 
 * PRNG is the reference PCG-XSH-RR 64/32 generator.  Seeding performs one
@@ -41,7 +41,7 @@ Algorithm contract (``rjmcp-pcg32-poisson-v1``)
   million.  JSON uses the ledger's UTF-8/sorted-key/compact serialization.
   ``createdAt`` and ``expiresAt`` are metadata on :class:`VegetationPlan`, never
   members of the hashed document.
-* Entity names are derived after hashing as ``RJMCP_<full plan id>_<index>`` and
+* Entity names are derived after hashing as ``EnfusionMCP_<full plan id>_<index>`` and
   are intentionally absent from the hashed document, avoiding a hash/name
   cycle.
 
@@ -64,10 +64,10 @@ from typing import Final, cast
 
 from pydantic import ValidationError
 
-from enfusion_mcp_rj.bridge_models import BRIDGE_BUILD_ID, BRIDGE_PROTOCOL_VERSION
-from enfusion_mcp_rj.catalog import VegetationCatalog
-from enfusion_mcp_rj.ledger import canonical_plan_json, plan_digest
-from enfusion_mcp_rj.models import (
+from enfusion_mcp.bridge_models import BRIDGE_BUILD_ID, BRIDGE_PROTOCOL_VERSION
+from enfusion_mcp.catalog import VegetationCatalog
+from enfusion_mcp.ledger import canonical_plan_json, plan_digest
+from enfusion_mcp.models import (
     PlannedPlacement,
     TargetLayer,
     ToolErrorInfo,
@@ -75,9 +75,9 @@ from enfusion_mcp_rj.models import (
     VegetationPlanInput,
     VegetationPlanOutput,
 )
-from enfusion_mcp_rj.path_types import PathValidationError, ResourceName
+from enfusion_mcp.path_types import PathValidationError, ResourceName
 
-ALGORITHM_VERSION: Final = "rjmcp-pcg32-poisson-v1"
+ALGORITHM_VERSION: Final = "enfusion-mcp-pcg32-poisson-v1"
 PLAN_SCHEMA_VERSION: Final = 1
 PCG32_MULTIPLIER: Final = 6_364_136_223_846_793_005
 PCG32_DEFAULT_STREAM: Final = 54
@@ -207,7 +207,7 @@ def _validate_uint(value: int, *, bits: int, field_name: str) -> None:
 
 @dataclass(frozen=True, slots=True)
 class TerrainBounds:
-    """Finite full 3D terrain bounds reported by ``RJMCP_GetContext``."""
+    """Finite full 3D terrain bounds reported by ``EnfusionMCP_GetContext``."""
 
     min_x: float
     min_y: float
@@ -265,7 +265,7 @@ class TerrainQuery:
 
 @dataclass(frozen=True, slots=True)
 class TerrainSample:
-    """One ordered ``RJMCP_TerrainSample`` result with a full surface normal."""
+    """One ordered ``EnfusionMCP_TerrainSample`` result with a full surface normal."""
 
     requested_x: float
     requested_z: float
@@ -938,7 +938,7 @@ def entity_name(plan_id: str, index: int) -> str:
         raise ValueError("plan_id must be 64 lowercase hexadecimal characters")
     if type(index) is not int or not 0 <= index < MAX_PLACEMENTS:
         raise ValueError("placement index must be between 0 and 99")
-    return f"RJMCP_{plan_id}_{index}"
+    return f"EnfusionMCP_{plan_id}_{index}"
 
 
 def yaw_degrees_from_u32(draw: int) -> float:

@@ -1,6 +1,6 @@
 # Notices and upstream attribution
 
-`enfusion-mcp-rj` is an independent Python implementation. It is distributed
+`enfusion-mcp` is an independent Python implementation. It is distributed
 under the MIT License in [`LICENSE`](LICENSE).
 
 The following MIT-licensed project is used as a read-only source of protocol
@@ -23,11 +23,11 @@ The following staged files adapt the upstream's conventional
 `Workbench.GetModule(WorldEditor)` integration patterns, while replacing the
 schema and behaviour with independently written narrow handlers:
 
-- `bridge/Scripts/WorkbenchGame/RJMCP/RJMCP_GetContext.c`, informed by
+- `bridge/Scripts/WorkbenchGame/EnfusionMCP/EnfusionMCP_GetContext.c`, informed by
   `EMCP_WB_GetState.c` and `EMCP_WB_ListEntities.c`;
-- `bridge/Scripts/WorkbenchGame/RJMCP/RJMCP_TerrainSample.c`, informed by
+- `bridge/Scripts/WorkbenchGame/EnfusionMCP/EnfusionMCP_TerrainSample.c`, informed by
   `EMCP_WB_Terrain.c`;
-- `bridge/Scripts/WorkbenchGame/RJMCP/RJMCP_VegetationApply.c`, informed by
+- `bridge/Scripts/WorkbenchGame/EnfusionMCP/EnfusionMCP_VegetationApply.c`, informed by
   `EMCP_WB_CreateEntity.c`, `EMCP_WB_GetEntity.c`, and
   `EMCP_WB_ListEntities.c`.
 

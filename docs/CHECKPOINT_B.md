@@ -1,8 +1,10 @@
 # Checkpoint B evidence
 
-Checkpoint B implements and simulates the safe platform/protocol/MCP boundary.
-No test or command read either map checkout or the real Proton prefix, started
-Steam/Workbench, probed port 5775, or called a live NET API.
+Historical report for the safe platform/protocol/MCP checkpoint. Its test
+counts and command results describe that revision; paths and package identifiers
+are generalized for public documentation. No test or command read an active
+addon or real Proton prefix, started Steam/Workbench, probed port 5775, or
+called a live NET API.
 
 ## Implemented
 
@@ -62,16 +64,16 @@ uv run mypy
 
 uv build
   exit 0
-  built dist/enfusion_mcp_rj-0.1.0a0.tar.gz
-  built dist/enfusion_mcp_rj-0.1.0a0-py3-none-any.whl
+  built dist/enfusion_mcp-0.1.0a0.tar.gz
+  built dist/enfusion_mcp-0.1.0a0-py3-none-any.whl
 
 uv run twine check dist/*
   exit 0; wheel PASSED; sdist PASSED
 
-pip-audit --requirement /tmp/enfusion-mcp-rj-prod.txt
+pip-audit --requirement /tmp/enfusion-mcp-prod.txt
   exit 0; No known vulnerabilities found
 
-pip-audit --requirement /tmp/enfusion-mcp-rj-full.txt
+pip-audit --requirement /tmp/enfusion-mcp-full.txt
   exit 0; No known vulnerabilities found
 
 git diff --check

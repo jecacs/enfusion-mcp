@@ -7,20 +7,20 @@ from uuid import UUID
 
 import pytest
 
-from enfusion_mcp_rj.bridge_models import BRIDGE_BUILD_ID, BRIDGE_PROTOCOL_VERSION
-from enfusion_mcp_rj.catalog import VegetationCatalog
-from enfusion_mcp_rj.config import ServerConfig
-from enfusion_mcp_rj.coordinator import CoordinatorError, CoordinatorErrorCode
-from enfusion_mcp_rj.ledger import Ledger, OperationState
-from enfusion_mcp_rj.locking import TargetLockManager, TargetScope
-from enfusion_mcp_rj.models import CatalogEntry, PaletteItem, VegetationPlanInput
-from enfusion_mcp_rj.net_api import JsonValue, NetApiClient
-from enfusion_mcp_rj.service import SafeRuntimeService
+from enfusion_mcp.bridge_models import BRIDGE_BUILD_ID, BRIDGE_PROTOCOL_VERSION
+from enfusion_mcp.catalog import VegetationCatalog
+from enfusion_mcp.config import ServerConfig
+from enfusion_mcp.coordinator import CoordinatorError, CoordinatorErrorCode
+from enfusion_mcp.ledger import Ledger, OperationState
+from enfusion_mcp.locking import TargetLockManager, TargetScope
+from enfusion_mcp.models import CatalogEntry, PaletteItem, VegetationPlanInput
+from enfusion_mcp.net_api import JsonValue, NetApiClient
+from enfusion_mcp.service import SafeRuntimeService
 
 PREFAB = "{0000000000000001}Prefabs/Synthetic/Bush.et"
 
 
-def _config(tmp_path: Path) -> ServerConfig:
+def _config(tmp_path: Path, *, world: str = "$myaddon:world.ent") -> ServerConfig:
     prefix = tmp_path / "prefix"
     drive_c = prefix / "drive_c"
     project = drive_c / "project"
@@ -36,7 +36,7 @@ def _config(tmp_path: Path) -> ServerConfig:
             "ENFUSION_WORKBENCH_PORT": "5775",
             "ENFUSION_PROJECT_HOST_PATH": str(project),
             "ENFUSION_PROJECT_ENGINE_PATH": r"C:\project",
-            "ENFUSION_ALLOWED_WORLD": "$thenewRJ:rj.ent",
+            "ENFUSION_ALLOWED_WORLD": world,
             "ENFUSION_SAFE_MODE": "1",
             "ENFUSION_STATE_DIR": str(tmp_path / ".state"),
         }
@@ -54,9 +54,16 @@ def _catalog() -> VegetationCatalog:
 
 
 class PlanningNetClient:
-    def __init__(self, catalog_hash: str, *, selection_count: int = 1) -> None:
+    def __init__(
+        self,
+        catalog_hash: str,
+        *,
+        selection_count: int = 1,
+        world: str = "$myaddon:world.ent",
+    ) -> None:
         self.catalog_hash = catalog_hash
         self.selection_count = selection_count
+        self.world = world
         self.context_calls = 0
         self.terrain_calls = 0
         self.last_batch_size = 0
@@ -73,7 +80,7 @@ class PlanningNetClient:
         params: Mapping[str, JsonValue] | None = None,
         **_kwargs: object,
     ) -> JsonValue:
-        if api_func == "RJMCP_GetContext":
+        if api_func == "EnfusionMCP_GetContext":
             self.context_calls += 1
             return {
                 "status": "error" if self.context_error_code else "ok",
@@ -82,7 +89,7 @@ class PlanningNetClient:
                 "bridgeProtocolVersion": BRIDGE_PROTOCOL_VERSION,
                 "bridgeBuildId": BRIDGE_BUILD_ID,
                 "catalogHash": self.catalog_hash,
-                "worldPath": "$thenewRJ:rj.ent",
+                "worldPath": self.world,
                 "mode": "edit",
                 "currentSubscene": 0,
                 "currentLayerId": 7,
@@ -107,7 +114,7 @@ class PlanningNetClient:
                     {"x": 10.0, "y": 0.0, "z": 40.0},
                 ],
             }
-        if api_func == "RJMCP_TerrainSample":
+        if api_func == "EnfusionMCP_TerrainSample":
             self.terrain_calls += 1
             assert params is not None
             points = params["points"]
@@ -202,7 +209,7 @@ class ApplyingNetClient(PlanningNetClient):
         api_func: str,
         params: Mapping[str, JsonValue] | None = None,
     ) -> JsonValue:
-        assert api_func == "RJMCP_VegetationApply"
+        assert api_func == "EnfusionMCP_VegetationApply"
         assert params is not None
         self.mutation_calls += 1
         if self.mutation_error is not None:
@@ -222,7 +229,7 @@ class ApplyingNetClient(PlanningNetClient):
         api_func: str,
         params: Mapping[str, JsonValue],
     ) -> JsonValue:
-        assert api_func == "RJMCP_VegetationApply"
+        assert api_func == "EnfusionMCP_VegetationApply"
         self.reconcile_calls += 1
         return self._operation_response(
             params,
@@ -236,8 +243,10 @@ def _service(
     tmp_path: Path,
     client: PlanningNetClient,
     catalog: VegetationCatalog,
+    *,
+    world: str = "$myaddon:world.ent",
 ) -> tuple[SafeRuntimeService, Ledger]:
-    config = _config(tmp_path)
+    config = _config(tmp_path, world=world)
     ledger = Ledger(config.state_dir.path, allowed_root=tmp_path)
     locks = TargetLockManager(config.state_dir.path, allowed_root=tmp_path)
     scope = TargetScope.derive(
@@ -280,7 +289,7 @@ async def test_world_context_maps_every_staged_bridge_field(tmp_path: Path) -> N
     service, _ledger = _service(tmp_path, client, catalog)
     result = await service.world_context()
     assert result.ok is True
-    assert result.world_path == "$thenewRJ:rj.ent"
+    assert result.world_path == "$myaddon:world.ent"
     assert result.mode == "edit"
     assert result.subscene == 0
     assert result.current_layer_id == 7
@@ -295,6 +304,60 @@ async def test_world_context_maps_every_staged_bridge_field(tmp_path: Path) -> N
     assert result.bridge_protocol_version == BRIDGE_PROTOCOL_VERSION
     assert result.bridge_build_id == BRIDGE_BUILD_ID
     assert result.catalog_hash == catalog.catalog_hash
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "world",
+    [
+        "$myaddon:world.ent",
+        "$another_project:Worlds/Island.ent",
+        "{0123456789ABCDEF}Worlds/Terrain.ent",
+    ],
+)
+async def test_context_and_planning_accept_the_configured_world(
+    tmp_path: Path,
+    world: str,
+) -> None:
+    catalog = _catalog()
+    client = PlanningNetClient(catalog.catalog_hash, world=world)
+    service, ledger = _service(tmp_path, client, catalog, world=world)
+
+    context = await service.world_context()
+    plan = await service.vegetation_plan(_request())
+
+    assert context.ok is True
+    assert context.world_path == world
+    assert plan.ok is True
+    assert plan.plan_id is not None
+    assert ledger.count_plans() == 1
+    assert client.terrain_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "open_world",
+    ["$other:world.ent", "$myaddon:other.ent"],
+)
+async def test_different_world_is_denied_before_terrain_or_plan_persistence(
+    tmp_path: Path,
+    open_world: str,
+) -> None:
+    catalog = _catalog()
+    client = PlanningNetClient(catalog.catalog_hash, world=open_world)
+    service, ledger = _service(tmp_path, client, catalog)
+
+    context = await service.world_context()
+    plan = await service.vegetation_plan(_request())
+
+    assert context.ok is False
+    assert context.error is not None
+    assert context.error.code == "WORLD_NOT_ALLOWED"
+    assert plan.ok is False
+    assert plan.error is not None
+    assert plan.error.code == "WORLD_NOT_ALLOWED"
+    assert client.terrain_calls == 0
+    assert ledger.count_plans() == 0
 
 
 @pytest.mark.asyncio

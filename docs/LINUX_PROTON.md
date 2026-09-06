@@ -4,21 +4,21 @@ The Python process runs natively on Linux. Arma Reforger Tools/Workbench remains
 a Windows executable managed manually by Steam with Proton Experimental. V1 has
 no launcher code.
 
-Configured deployment values:
+Fixed transport/platform values:
 
 ```text
 Steam game app ID: 1874880
 Steam Tools app ID: 1874910
 Workbench NET API: 127.0.0.1:5775
 platform mode: native-linux-proton
-project ID: thenewRJ
-project GUID: 604B36AADC73C902
-allowed world: $thenewRJ:rj.ent
 ```
 
 The runtime requires explicit environment variables for Proton prefix, active
-host project directory, its engine-facing Wine path, and shared state. No
-default path silently selects a checkout.
+host project directory, its engine-facing Wine path, allowed world, and shared
+state. No default path or world silently selects a project. Set
+`ENFUSION_ALLOWED_WORLD` to the exact resource name reported by Workbench, for
+example `$myaddon:world.ent`, replacing the example addon ID and resource path.
+The project ID and GUID belong to your addon; they are not fixed by this server.
 
 ## Four non-interchangeable path kinds
 
@@ -46,7 +46,7 @@ as the only possibilities.
 
 ## Development boundary
 
-Checkpoint A–C tests create synthetic prefixes and `dosdevices` symlinks under
-pytest temporary directories. They do not read the configured real Proton
-prefix, either copy of the map, Workbench executable, or port 5775. Real mapping
-inspection belongs only to the later permissioned installation/live stage.
+Tests create synthetic prefixes and `dosdevices` symlinks under pytest temporary
+directories. They do not read a real Proton prefix or addon, launch Workbench,
+or connect to port 5775. Real mapping inspection and Workbench checks are part
+of deployment validation.

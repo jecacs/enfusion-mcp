@@ -1,7 +1,7 @@
 """Fail-closed vegetation apply/reconciliation coordination.
 
 The coordinator is the only layer allowed to turn an immutable stored plan into
-an ``RJMCP_VegetationApply`` request.  Public callers supply only ``plan_id`` and
+an ``EnfusionMCP_VegetationApply`` request.  Public callers supply only ``plan_id`` and
 a UUID idempotency key; transforms and resource names are always recovered from
 the shared ledger.  Every create attempt is serialized by the target lock and
 is durably marked ``SENDING`` before the bridge is called exactly once.
@@ -21,7 +21,7 @@ from typing import Final, Protocol
 
 from pydantic import ValidationError
 
-from enfusion_mcp_rj.bridge_models import (
+from enfusion_mcp.bridge_models import (
     BRIDGE_BUILD_ID,
     BRIDGE_PROTOCOL_VERSION,
     MAX_PLACEMENTS,
@@ -29,7 +29,7 @@ from enfusion_mcp_rj.bridge_models import (
     BridgeVegetationApplyRequest,
     BridgeVegetationApplyResponse,
 )
-from enfusion_mcp_rj.ledger import (
+from enfusion_mcp.ledger import (
     MAX_DETAIL_LENGTH,
     InvalidOperationTransitionError,
     Ledger,
@@ -44,11 +44,11 @@ from enfusion_mcp_rj.ledger import (
     TargetOperationConflictError,
     validate_idempotency_key,
 )
-from enfusion_mcp_rj.locking import LockError, TargetLockManager, TargetScope
-from enfusion_mcp_rj.models import Vec3
-from enfusion_mcp_rj.net_api import JsonValue, NetApiError
-from enfusion_mcp_rj.path_types import ResourceName
-from enfusion_mcp_rj.planner import (
+from enfusion_mcp.locking import LockError, TargetLockManager, TargetScope
+from enfusion_mcp.models import Vec3
+from enfusion_mcp.net_api import JsonValue, NetApiError
+from enfusion_mcp.path_types import ResourceName
+from enfusion_mcp.planner import (
     ALGORITHM_VERSION,
     ANGLE_SCALE,
     COORDINATE_SCALE,
@@ -61,8 +61,8 @@ from enfusion_mcp_rj.planner import (
     validate_polygon,
 )
 
-VEGETATION_ENDPOINT: Final = "RJMCP_VegetationApply"
-CONTEXT_ENDPOINT: Final = "RJMCP_GetContext"
+VEGETATION_ENDPOINT: Final = "EnfusionMCP_VegetationApply"
+CONTEXT_ENDPOINT: Final = "EnfusionMCP_GetContext"
 MAX_MIN_SPACING_M: Final = 1_000.0
 MAX_SLOPE_DEG: Final = 90.0
 MAX_SCALE: Final = 10.0
@@ -238,7 +238,7 @@ class _TrustedPlan:
             "terrainYEpsilon": self.terrain_y_epsilon,
             "prefabs": [placement.prefab for placement in self.placements],
             "entityNames": [
-                f"RJMCP_{self.plan_id}_{placement.index}" for placement in self.placements
+                f"EnfusionMCP_{self.plan_id}_{placement.index}" for placement in self.placements
             ],
             "x": [placement.x for placement in self.placements],
             "y": [placement.y for placement in self.placements],
@@ -520,12 +520,13 @@ class ApplyCoordinator:
         except ValidationError as exc:
             raise CoordinatorError(
                 CoordinatorErrorCode.CONTEXT_PREFLIGHT_FAILED,
-                f"RJMCP_GetContext response failed strict validation: {exc}",
+                f"EnfusionMCP_GetContext response failed strict validation: {exc}",
             ) from exc
         if context.status != "ok":
             raise CoordinatorError(
                 CoordinatorErrorCode.CONTEXT_PREFLIGHT_FAILED,
-                f"RJMCP_GetContext rejected preflight: {context.error_code}: {context.message}",
+                f"EnfusionMCP_GetContext rejected preflight: "
+                f"{context.error_code}: {context.message}",
             )
 
         checks = (
@@ -1297,7 +1298,7 @@ def _parse_unified_report(  # noqa: PLR0913 - explicit operation identity checks
     entity_names = tuple(report.entity_names)
     if len(entity_names) != report.created_count:
         raise BridgeProtocolError("entityNames cardinality differs from createdCount")
-    expected_names = tuple(f"RJMCP_{plan_id}_{index}" for index in range(expected_count))
+    expected_names = tuple(f"EnfusionMCP_{plan_id}_{index}" for index in range(expected_count))
     if entity_names and entity_names != expected_names[: len(entity_names)]:
         raise BridgeProtocolError("bridge entityNames do not match deterministic plan names")
     return _UnifiedBridgeReport(

@@ -8,8 +8,8 @@ from pydantic import ConfigDict, Field, model_validator
 
 from .models import CanonicalUUIDString, StrictModel
 
-BRIDGE_PROTOCOL_VERSION = "rjmcp-bridge-v1"
-BRIDGE_BUILD_ID = "rjmcp-bridge-v1-review-fixes"
+BRIDGE_PROTOCOL_VERSION = "enfusion-mcp-bridge-v1"
+BRIDGE_BUILD_ID = "enfusion-mcp-bridge-v1-map-agnostic"
 BRIDGE_ERROR_CODE_PATTERN = r"^(?:|[A-Z][A-Z0-9_]*)$"
 MAX_CONTEXT_POINTS = 1024
 MAX_TERRAIN_POINTS = 1000

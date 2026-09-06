@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from enfusion_mcp_rj.bridge_models import (
+from enfusion_mcp.bridge_models import (
     BRIDGE_BUILD_ID,
     BRIDGE_PROTOCOL_VERSION,
     BridgeContextResponse,
@@ -20,11 +20,11 @@ from enfusion_mcp_rj.bridge_models import (
     BridgeVegetationApplyRequest,
     BridgeVegetationApplyResponse,
 )
-from enfusion_mcp_rj.catalog import PRODUCTION_CATALOG
+from enfusion_mcp.catalog import PRODUCTION_CATALOG
 
 ROOT = Path(__file__).resolve().parents[1]
-HANDLER_DIR = ROOT / "bridge/Scripts/WorkbenchGame/RJMCP"
-HANDLERS = sorted(HANDLER_DIR.glob("RJMCP_*.c"))
+HANDLER_DIR = ROOT / "bridge/Scripts/WorkbenchGame/EnfusionMCP"
+HANDLERS = sorted(HANDLER_DIR.glob("EnfusionMCP_*.c"))
 
 
 def _source(name: str) -> str:
@@ -128,9 +128,9 @@ def _block_after(source: str, marker: str, *, start: int = 0) -> str:
 
 def test_exact_staged_handler_manifest_and_registration_prefix() -> None:
     assert [path.name for path in HANDLERS] == [
-        "RJMCP_GetContext.c",
-        "RJMCP_TerrainSample.c",
-        "RJMCP_VegetationApply.c",
+        "EnfusionMCP_GetContext.c",
+        "EnfusionMCP_TerrainSample.c",
+        "EnfusionMCP_VegetationApply.c",
     ]
     for path in HANDLERS:
         source = path.read_text()
@@ -154,18 +154,26 @@ def test_each_installable_handler_has_self_contained_mit_upstream_attribution() 
 @pytest.mark.parametrize(
     ("filename", "class_name", "model"),
     [
-        ("RJMCP_GetContext.c", "RJMCP_GetContextRequest", None),
-        ("RJMCP_GetContext.c", "RJMCP_GetContextResponse", BridgeContextResponse),
-        ("RJMCP_TerrainSample.c", "RJMCP_TerrainSampleRequest", BridgeTerrainSampleRequest),
-        ("RJMCP_TerrainSample.c", "RJMCP_TerrainSampleResponse", BridgeTerrainSampleResponse),
+        ("EnfusionMCP_GetContext.c", "EnfusionMCP_GetContextRequest", None),
+        ("EnfusionMCP_GetContext.c", "EnfusionMCP_GetContextResponse", BridgeContextResponse),
         (
-            "RJMCP_VegetationApply.c",
-            "RJMCP_VegetationApplyRequest",
+            "EnfusionMCP_TerrainSample.c",
+            "EnfusionMCP_TerrainSampleRequest",
+            BridgeTerrainSampleRequest,
+        ),
+        (
+            "EnfusionMCP_TerrainSample.c",
+            "EnfusionMCP_TerrainSampleResponse",
+            BridgeTerrainSampleResponse,
+        ),
+        (
+            "EnfusionMCP_VegetationApply.c",
+            "EnfusionMCP_VegetationApplyRequest",
             BridgeVegetationApplyRequest,
         ),
         (
-            "RJMCP_VegetationApply.c",
-            "RJMCP_VegetationApplyResponse",
+            "EnfusionMCP_VegetationApply.c",
+            "EnfusionMCP_VegetationApplyResponse",
             BridgeVegetationApplyResponse,
         ),
     ],
@@ -183,17 +191,25 @@ def test_top_level_python_models_match_real_handler_wire_fields(
 @pytest.mark.parametrize(
     ("filename", "class_name", "model"),
     [
-        ("RJMCP_GetContext.c", "RJMCP_GetContextResponse", BridgeContextResponse),
-        ("RJMCP_TerrainSample.c", "RJMCP_TerrainSampleRequest", BridgeTerrainSampleRequest),
-        ("RJMCP_TerrainSample.c", "RJMCP_TerrainSampleResponse", BridgeTerrainSampleResponse),
+        ("EnfusionMCP_GetContext.c", "EnfusionMCP_GetContextResponse", BridgeContextResponse),
         (
-            "RJMCP_VegetationApply.c",
-            "RJMCP_VegetationApplyRequest",
+            "EnfusionMCP_TerrainSample.c",
+            "EnfusionMCP_TerrainSampleRequest",
+            BridgeTerrainSampleRequest,
+        ),
+        (
+            "EnfusionMCP_TerrainSample.c",
+            "EnfusionMCP_TerrainSampleResponse",
+            BridgeTerrainSampleResponse,
+        ),
+        (
+            "EnfusionMCP_VegetationApply.c",
+            "EnfusionMCP_VegetationApplyRequest",
             BridgeVegetationApplyRequest,
         ),
         (
-            "RJMCP_VegetationApply.c",
-            "RJMCP_VegetationApplyResponse",
+            "EnfusionMCP_VegetationApply.c",
+            "EnfusionMCP_VegetationApplyResponse",
             BridgeVegetationApplyResponse,
         ),
     ],
@@ -209,10 +225,14 @@ def test_top_level_python_scalar_object_and_array_types_match_handler_declaratio
 @pytest.mark.parametrize(
     ("filename", "class_name", "model"),
     [
-        ("RJMCP_GetContext.c", "RJMCP_ContextVec3", BridgeVec3),
-        ("RJMCP_GetContext.c", "RJMCP_ContextTerrainBounds", BridgeTerrainBounds),
-        ("RJMCP_TerrainSample.c", "RJMCP_TerrainPointRequest", BridgeTerrainPointRequest),
-        ("RJMCP_TerrainSample.c", "RJMCP_TerrainSampleItem", BridgeTerrainSample),
+        ("EnfusionMCP_GetContext.c", "EnfusionMCP_ContextVec3", BridgeVec3),
+        ("EnfusionMCP_GetContext.c", "EnfusionMCP_ContextTerrainBounds", BridgeTerrainBounds),
+        (
+            "EnfusionMCP_TerrainSample.c",
+            "EnfusionMCP_TerrainPointRequest",
+            BridgeTerrainPointRequest,
+        ),
+        ("EnfusionMCP_TerrainSample.c", "EnfusionMCP_TerrainSampleItem", BridgeTerrainSample),
     ],
 )
 def test_nested_python_models_match_real_handler_regv_fields(
@@ -235,7 +255,7 @@ def test_all_mutation_request_fields_are_required_by_python_before_connection() 
 def test_apply_response_requires_every_always_packed_handler_field() -> None:
     schema = BridgeVegetationApplyResponse.model_json_schema(by_alias=True)
     handler_fields = _wire_fields(
-        _source("RJMCP_VegetationApply.c"), "RJMCP_VegetationApplyResponse"
+        _source("EnfusionMCP_VegetationApply.c"), "EnfusionMCP_VegetationApplyResponse"
     )
     assert set(schema["required"]) == handler_fields
 
@@ -243,16 +263,16 @@ def test_apply_response_requires_every_always_packed_handler_field() -> None:
 def test_missing_zero_valid_scalars_have_invalid_enforce_defaults() -> None:
     """Inspect actual constructors; live JSON type/cardinality decoding is separate."""
 
-    terrain = _source("RJMCP_TerrainSample.c")
-    point = _class_body(terrain, "RJMCP_TerrainPointRequest")
-    constructor = _block_after(point, "void RJMCP_TerrainPointRequest()")
+    terrain = _source("EnfusionMCP_TerrainSample.c")
+    point = _class_body(terrain, "EnfusionMCP_TerrainPointRequest")
+    constructor = _block_after(point, "void EnfusionMCP_TerrainPointRequest()")
     for axis in ("x", "z"):
         assert f"{axis} = 1000001.0;" in constructor
     assert "Math.AbsFloat(value) <= 1000000.0" in terrain
 
-    apply = _source("RJMCP_VegetationApply.c")
-    request = _class_body(apply, "RJMCP_VegetationApplyRequest")
-    constructor = _block_after(request, "void RJMCP_VegetationApplyRequest()")
+    apply = _source("EnfusionMCP_VegetationApply.c")
+    request = _class_body(apply, "EnfusionMCP_VegetationApplyRequest")
+    constructor = _block_after(request, "void EnfusionMCP_VegetationApplyRequest()")
     assert "subscene = -1;" in constructor
     assert "maxSlopeDeg = -1.0;" in constructor
     response = _block_after(apply, "override JsonApiStruct GetResponse")
@@ -281,36 +301,36 @@ def test_bridge_models_accept_only_exact_lower_camel_wire_names() -> None:
 
 
 def test_bridge_and_catalog_fingerprints_are_embedded_exactly() -> None:
-    apply = _source("RJMCP_VegetationApply.c")
-    context = _source("RJMCP_GetContext.c")
+    apply = _source("EnfusionMCP_VegetationApply.c")
+    context = _source("EnfusionMCP_GetContext.c")
     assert BRIDGE_PROTOCOL_VERSION in context
     assert BRIDGE_PROTOCOL_VERSION in apply
     assert BRIDGE_BUILD_ID in context
     assert BRIDGE_BUILD_ID in apply
-    assert PRODUCTION_CATALOG.catalog_hash in _source("RJMCP_GetContext.c")
+    assert PRODUCTION_CATALOG.catalog_hash in _source("EnfusionMCP_GetContext.c")
     assert PRODUCTION_CATALOG.catalog_hash in apply
-    assert 'RegV("bridgeBuildId")' in _class_body(apply, "RJMCP_VegetationApplyRequest")
-    response = _class_body(apply, "RJMCP_VegetationApplyResponse")
+    assert 'RegV("bridgeBuildId")' in _class_body(apply, "EnfusionMCP_VegetationApplyRequest")
+    response = _class_body(apply, "EnfusionMCP_VegetationApplyResponse")
     assert 'RegV("bridgeBuildId")' in response
     assert 'RegV("catalogHash")' in response
 
 
 def test_wire_array_element_types_and_nested_handler_classes_are_exact() -> None:
-    terrain = _source("RJMCP_TerrainSample.c")
-    apply = _source("RJMCP_VegetationApply.c")
-    assert "ref array<ref RJMCP_TerrainPointRequest> points;" in _class_body(
-        terrain, "RJMCP_TerrainSampleRequest"
+    terrain = _source("EnfusionMCP_TerrainSample.c")
+    apply = _source("EnfusionMCP_VegetationApply.c")
+    assert "ref array<ref EnfusionMCP_TerrainPointRequest> points;" in _class_body(
+        terrain, "EnfusionMCP_TerrainSampleRequest"
     )
-    assert "ref array<ref RJMCP_TerrainSampleItem> m_aResults;" in _class_body(
-        terrain, "RJMCP_TerrainSampleResponse"
+    assert "ref array<ref EnfusionMCP_TerrainSampleItem> m_aResults;" in _class_body(
+        terrain, "EnfusionMCP_TerrainSampleResponse"
     )
-    apply_request = _class_body(apply, "RJMCP_VegetationApplyRequest")
+    apply_request = _class_body(apply, "EnfusionMCP_VegetationApplyRequest")
     for field in ("prefabs", "entityNames"):
         assert f"ref array<string> {field};" in apply_request
     for field in ("x", "y", "z", "yaw", "scale"):
         assert f"ref array<float> {field};" in apply_request
     assert "ref array<string> m_aEntityNames;" in _class_body(
-        apply, "RJMCP_VegetationApplyResponse"
+        apply, "EnfusionMCP_VegetationApplyResponse"
     )
 
 
@@ -324,13 +344,13 @@ def test_context_and_terrain_handlers_are_statically_read_only() -> None:
         "Save(",
         "CreateSubsceneLayer(",
     )
-    for name in ("RJMCP_GetContext.c", "RJMCP_TerrainSample.c"):
+    for name in ("EnfusionMCP_GetContext.c", "EnfusionMCP_TerrainSample.c"):
         source = _source(name)
         assert all(token not in source for token in forbidden)
 
 
 def test_context_uses_documented_world_and_shape_coordinate_contract() -> None:
-    source = _source("RJMCP_GetContext.c")
+    source = _source("EnfusionMCP_GetContext.c")
     assert "api.GetWorldPath(response.worldPath);" in source
     assert "api.GetSelectedEntitiesCount()" in source
     assert "PolylineShapeEntity.Cast" in source
@@ -346,7 +366,7 @@ def test_context_uses_documented_world_and_shape_coordinate_contract() -> None:
 
 
 def test_terrain_uses_one_batched_array_and_documented_sampling_contract() -> None:
-    source = _source("RJMCP_TerrainSample.c")
+    source = _source("EnfusionMCP_TerrainSample.c")
     assert 'RegV("points")' in source
     assert "typedRequest.points.Count() > 1000" in source
     assert "api.TryGetTerrainSurfaceY(" in source
@@ -371,8 +391,8 @@ def test_primitive_arrays_use_item_string_not_empty_named_store() -> None:
 
 
 def test_apply_is_fail_closed_on_empty_exact_catalog_before_mutation() -> None:
-    source = _source("RJMCP_VegetationApply.c")
-    allowlist = _class_body(source, "RJMCP_VegetationApply")
+    source = _source("EnfusionMCP_VegetationApply.c")
+    allowlist = _class_body(source, "EnfusionMCP_VegetationApply")
     allowlist_start = allowlist.index("static bool IsAllowedPrefab")
     allowlist_end = allowlist.index("static bool CardinalityIsExact")
     allowlist_body = allowlist[allowlist_start:allowlist_end]
@@ -383,14 +403,14 @@ def test_apply_is_fail_closed_on_empty_exact_catalog_before_mutation() -> None:
 
 
 def test_apply_compile_live_gate_dominates_every_create_mutation() -> None:
-    source = _source("RJMCP_VegetationApply.c")
-    handler = _class_body(source, "RJMCP_VegetationApply")
+    source = _source("EnfusionMCP_VegetationApply.c")
+    handler = _class_body(source, "EnfusionMCP_VegetationApply")
     response_body = _block_after(handler, "override JsonApiStruct GetResponse")
     assert "static const bool MUTATION_IMPLEMENTATION_VALIDATED = false;" in handler
     assert "MUTATION_IMPLEMENTATION_VALIDATED = true" not in handler
 
     gate = response_body.index("if (!MUTATION_IMPLEMENTATION_VALIDATED)")
-    begin = response_body.index('api.BeginEntityAction("RJMCP vegetation')
+    begin = response_body.index('api.BeginEntityAction("EnfusionMCP vegetation')
     create = response_body.index("api.CreateEntity(")
     rename = response_body.index("api.RenameEntity(")
     cleanup = response_body.index("CleanupCreated(api, created)")
@@ -414,12 +434,12 @@ def test_apply_compile_live_gate_dominates_every_create_mutation() -> None:
 
 
 def test_scale_uses_checked_editor_source_writes_inside_cleanup_responsibility() -> None:
-    source = _source("RJMCP_VegetationApply.c")
+    source = _source("EnfusionMCP_VegetationApply.c")
     response_body = _block_after(
-        _class_body(source, "RJMCP_VegetationApply"),
+        _class_body(source, "EnfusionMCP_VegetationApply"),
         "override JsonApiStruct GetResponse",
     )
-    begin = response_body.index('api.BeginEntityAction("RJMCP vegetation')
+    begin = response_body.index('api.BeginEntityAction("EnfusionMCP vegetation')
     assert response_body.index("req.scaleMin <= 0 || req.scaleMin > req.scaleMax") < begin
     assert response_body.index("req.scale[scaleIndex] < req.scaleMin") < begin
     assert response_body.index("req.scale[scaleIndex] > req.scaleMax") < begin
@@ -431,7 +451,7 @@ def test_scale_uses_checked_editor_source_writes_inside_cleanup_responsibility()
         "if (!EntityMatches(api, source, req, createIndex, layerId))"
     )
     rollback = response_body.index("if (createFailed)")
-    end = response_body.index('api.EndEntityAction("RJMCP vegetation "')
+    end = response_body.index('api.EndEntityAction("EnfusionMCP vegetation "')
     assert begin < cleanup_ownership < setter < verification < rollback < end
     setter_failure = _block_after(
         response_body,
@@ -457,7 +477,7 @@ def test_scale_uses_checked_editor_source_writes_inside_cleanup_responsibility()
 
 
 def test_apply_uses_finite_exact_and_circular_transform_comparison() -> None:
-    source = _source("RJMCP_VegetationApply.c")
+    source = _source("EnfusionMCP_VegetationApply.c")
     entity_matches = _block_after(source, "static bool EntityMatches")
     circular = _block_after(source, "static float CircularYawDifference")
     assert "while (difference >= 360.0)" in circular
@@ -478,7 +498,7 @@ def test_yaw_source_api_and_orientation_axes_match_official_documented_contract(
     CreateEntity(..., vector.Zero). This checks those actual call sites.
     """
 
-    source = _source("RJMCP_VegetationApply.c")
+    source = _source("EnfusionMCP_VegetationApply.c")
     assert ".GetAngles()" not in source
     orientation = _block_after(source, "static bool OrientationMatches")
     assert "IsFiniteVector(yawPitchRoll)" in orientation
@@ -508,9 +528,35 @@ def test_yaw_source_api_and_orientation_axes_match_official_documented_contract(
     )
 
 
+def test_apply_accepts_any_nonempty_world_but_requires_exact_current_identity() -> None:
+    source = _source("EnfusionMCP_VegetationApply.c")
+    response = _block_after(source, "override JsonApiStruct GetResponse")
+    assert "ALLOWED_WORLD" not in source
+    assert not re.search(r'"[^"\n]*\.ent"', source)
+
+    empty_world = _block_after(response, 'if (req.worldPath == "")')
+    assert 'Fail(response, "INVALID_WORLD",' in empty_world
+    assert "return response;" in empty_world
+
+    stale_identity = _block_after(
+        response,
+        "if (actualWorld != req.worldPath || api.GetCurrentSubScene() != req.subscene)",
+    )
+    assert 'Fail(response, "STALE_WORLD",' in stale_identity
+    assert "return response;" in stale_identity
+
+    request_identity = response.index('if (req.worldPath == "")')
+    current_identity = response.index("api.GetWorldPath(actualWorld);")
+    stale_guard = response.index("if (actualWorld != req.worldPath")
+    reconciliation = response.index("int presentCount = 0;")
+    mutation = response.index('api.BeginEntityAction("EnfusionMCP vegetation')
+    assert request_identity < current_identity < stale_guard < reconciliation < mutation
+    assert not re.search(r"req\.worldPath\s*=(?!=)", response)
+
+
 def test_apply_rechecks_editor_terrain_layer_and_conflicts_before_begin() -> None:
-    source = _source("RJMCP_VegetationApply.c")
-    begin = source.index('api.BeginEntityAction("RJMCP vegetation')
+    source = _source("EnfusionMCP_VegetationApply.c")
+    begin = source.index('api.BeginEntityAction("EnfusionMCP vegetation')
     required_before_begin = (
         "api.IsGameMode()",
         "api.IsPrefabEditMode()",
@@ -538,9 +584,9 @@ def test_apply_rechecks_editor_terrain_layer_and_conflicts_before_begin() -> Non
 
 
 def test_reconcile_checks_editor_stability_then_skips_create_only_preflight() -> None:
-    source = _source("RJMCP_VegetationApply.c")
+    source = _source("EnfusionMCP_VegetationApply.c")
     response_body = _block_after(
-        _class_body(source, "RJMCP_VegetationApply"),
+        _class_body(source, "EnfusionMCP_VegetationApply"),
         "override JsonApiStruct GetResponse",
     )
     world_identity = response_body.index("api.GetWorldPath(actualWorld)")
@@ -559,7 +605,7 @@ def test_reconcile_checks_editor_stability_then_skips_create_only_preflight() ->
     terrain_bounds = response_body.index("worldEditor.GetTerrainBounds(")
     terrain_sample = response_body.index("api.TryGetTerrainSurfaceY(")
     spacing = response_body.index("SPACING_VIOLATION")
-    begin = response_body.index('api.BeginEntityAction("RJMCP vegetation')
+    begin = response_body.index('api.BeginEntityAction("EnfusionMCP vegetation')
 
     assert world_identity < layer_identity <= layer_round_trip < stable_editor < classification
     assert classification < reconcile_exit < gate
@@ -598,9 +644,9 @@ def test_reconcile_checks_editor_stability_then_skips_create_only_preflight() ->
 
 
 def test_apply_has_conservative_rollback_post_end_verification_and_no_save() -> None:
-    source = _source("RJMCP_VegetationApply.c")
+    source = _source("EnfusionMCP_VegetationApply.c")
     response_body = _block_after(
-        _class_body(source, "RJMCP_VegetationApply"),
+        _class_body(source, "EnfusionMCP_VegetationApply"),
         "override JsonApiStruct GetResponse",
     )
     assert "if (!api.BeginEntityAction(" in source
@@ -613,7 +659,7 @@ def test_apply_has_conservative_rollback_post_end_verification_and_no_save() -> 
 
     cleanup = response_body.index("bool cleanupSucceeded = CleanupCreated(api, created);")
     rollback_end = response_body.index(
-        'bool actionEnded = api.EndEntityAction("RJMCP vegetation rollback")'
+        'bool actionEnded = api.EndEntityAction("EnfusionMCP vegetation rollback")'
     )
     absence = response_body.index("bool absentAfterEnd = EntityNamesAreAbsent(api, createdNames);")
     source_absence = response_body.index(
@@ -621,7 +667,9 @@ def test_apply_has_conservative_rollback_post_end_verification_and_no_save() -> 
     )
     assert cleanup < rollback_end < absence < source_absence
 
-    normal_end = response_body.index('bool actionEnded = api.EndEntityAction("RJMCP vegetation "')
+    normal_end = response_body.index(
+        'bool actionEnded = api.EndEntityAction("EnfusionMCP vegetation "'
+    )
     post_end = response_body.index("VerifyExactBatch(api, req, layerId, postEndMatchingCount)")
     assert normal_end < post_end
     assert response_body[normal_end:post_end].count("api.EndEntityAction(") == 1

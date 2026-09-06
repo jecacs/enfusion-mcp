@@ -15,7 +15,7 @@ Apply never saves the world. Layers are not created. The user manually creates
 and selects `MCP_Preview` or `MCP_Vegetation`, manually saves if desired, and
 later performs the live one-Ctrl+Z acceptance test.
 
-## Planner algorithm `rjmcp-pcg32-poisson-v1`
+## Planner algorithm `enfusion-mcp-pcg32-poisson-v1`
 
 The planner uses the reference PCG-XSH-RR 64/32 algorithm with 64-bit state,
 32-bit output, multiplier `6364136223846793005`, fixed stream selector 54, and
@@ -115,7 +115,7 @@ claimed to be full RFC 8785/JCS. `plan_id` is lowercase SHA-256 of these bytes.
 from the hash. Names are derived afterward as:
 
 ```text
-RJMCP_<full 64-hex plan_id>_<decimal placement index>
+EnfusionMCP_<full 64-hex plan_id>_<decimal placement index>
 ```
 
 This avoids a hash/name cycle while keeping stable reconciliation identity.

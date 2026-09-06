@@ -22,7 +22,8 @@ outside the authentication boundary; another local process could speak to it.
 
 ## Controls
 
-- Safe mode is mandatory and pins host, world, project, and allowed layers.
+- Safe mode is mandatory, fixes the loopback host and allowed layers, and binds
+  each server configuration to one operator-selected project and exact world.
 - Inputs use separate nominal path/resource types and explicit conversions.
 - Resource names and prefabs are exact allowlists, never substrings or globs.
 - Frame lengths are bounded before allocation and every response has exactly

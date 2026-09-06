@@ -1,38 +1,20 @@
 # Checkpoint A evidence
 
-Completed on 2026-09-05 without reading either map checkout, touching Proton,
-starting Steam/Workbench, probing port 5775, or calling NET API.
+Historical scaffold report, completed on 2026-09-05. These results describe
+that checkpoint, not the current revision. Local paths and package identifiers
+are generalized for public documentation. No active addon or Proton prefix was
+read, and Steam/Workbench and NET API were not used.
 
 ## Initial Git evidence
 
-Invocation directory: `/home/jecacs/work/arma`.
-
-New repository before changes:
-
-```text
-path: /home/jecacs/work/arma/enfusion-mcp
-branch: main
-HEAD: 9e46b6e51819764acb4e6d08c2838af3895e49ff
-origin fetch/push: git@github.com:jecacs/enfusion-mcp.git
-status: ## main...origin/main
-```
-
-Created branch: `feature/python-linux-proton-safe-vegetation`.
-
-Read-only sibling reference:
-
-```text
-path: /home/jecacs/work/arma/govno-enfusion-mcp
-branch: feature/linux-proton-safe-vegetation
-HEAD: 0acfa884228477043c6b4c2b8c7f0c270d648398
-origin fetch/push: git@github.com:jecacs/enfusion-mcp.git
-status: ## feature/linux-proton-safe-vegetation
-```
-
-Expected upstream identity is confirmed by sibling `package.json:45-50` and
-`README.md:183-185`, not by its configured remote:
-<https://github.com/steffenbk/enfusion-mcp-BK>. Its complete MIT license is at
-`LICENSE:1-20`. The new repository's existing MIT license was preserved.
+The repository baseline was `9e46b6e51819764acb4e6d08c2838af3895e49ff` on
+`main`; implementation used `feature/python-linux-proton-safe-vegetation`.
+The read-only upstream reference was commit
+`0acfa884228477043c6b4c2b8c7f0c270d648398` from
+[enfusion-mcp-BK](https://github.com/steffenbk/enfusion-mcp-BK).
+Its identity was checked through `package.json:45-50` and `README.md:183-185`;
+its complete MIT license was at `LICENSE:1-20`. The repository's existing MIT
+license was preserved.
 
 ## Toolchain and dependency decision
 
@@ -80,20 +62,20 @@ uv run pytest -q
 
 uv build
   exit 0
-  built dist/enfusion_mcp_rj-0.1.0a0.tar.gz
-  built dist/enfusion_mcp_rj-0.1.0a0-py3-none-any.whl
+  built dist/enfusion_mcp-0.1.0a0.tar.gz
+  built dist/enfusion_mcp-0.1.0a0-py3-none-any.whl
 
 uv run twine check dist/*
   exit 0; wheel PASSED; sdist PASSED
 
 production export: uv export --frozen --no-dev --no-emit-project ...
   exit 0; 30 locked third-party requirement entries
-pip-audit --requirement /tmp/enfusion-mcp-rj-prod.txt
+pip-audit --requirement /tmp/enfusion-mcp-prod.txt
   exit 0; No known vulnerabilities found
 
 full export: uv export --frozen --all-groups --no-emit-project ...
   exit 0; 87 locked third-party requirement entries
-pip-audit --requirement /tmp/enfusion-mcp-rj-full.txt
+pip-audit --requirement /tmp/enfusion-mcp-full.txt
   exit 0; No known vulnerabilities found
 
 git diff --check

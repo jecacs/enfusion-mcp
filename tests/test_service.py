@@ -6,10 +6,10 @@ from typing import cast
 
 import pytest
 
-from enfusion_mcp_rj.config import ServerConfig
-from enfusion_mcp_rj.ledger import Ledger
-from enfusion_mcp_rj.locking import TargetLockManager, TargetScope
-from enfusion_mcp_rj.net_api import (
+from enfusion_mcp.config import ServerConfig
+from enfusion_mcp.ledger import Ledger
+from enfusion_mcp.locking import TargetLockManager, TargetScope
+from enfusion_mcp.net_api import (
     JsonValue,
     NetApiClient,
     NetApiError,
@@ -18,7 +18,7 @@ from enfusion_mcp_rj.net_api import (
     UnknownOutcomeError,
     WorkbenchApiError,
 )
-from enfusion_mcp_rj.service import SafeRuntimeService, _typed_net_error
+from enfusion_mcp.service import SafeRuntimeService, _typed_net_error
 
 
 def config(tmp_path: Path) -> ServerConfig:
@@ -38,7 +38,7 @@ def config(tmp_path: Path) -> ServerConfig:
             "ENFUSION_WORKBENCH_PORT": "5775",
             "ENFUSION_PROJECT_HOST_PATH": str(project),
             "ENFUSION_PROJECT_ENGINE_PATH": r"C:\project",
-            "ENFUSION_ALLOWED_WORLD": "$thenewRJ:rj.ent",
+            "ENFUSION_ALLOWED_WORLD": "$myaddon:world.ent",
             "ENFUSION_SAFE_MODE": "1",
             "ENFUSION_STATE_DIR": str(state),
         }

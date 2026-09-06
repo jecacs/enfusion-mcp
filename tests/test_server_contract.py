@@ -6,7 +6,7 @@ import pytest
 from mcp import Client
 from mcp.shared.exceptions import MCPError
 
-from enfusion_mcp_rj.models import (
+from enfusion_mcp.models import (
     CatalogEntry,
     ToolErrorInfo,
     VegetationApplyOutput,
@@ -16,7 +16,7 @@ from enfusion_mcp_rj.models import (
     WorkbenchStatusOutput,
     WorldContextOutput,
 )
-from enfusion_mcp_rj.server import SERVER_INSTRUCTIONS, create_server
+from enfusion_mcp.server import SERVER_INSTRUCTIONS, create_server
 
 
 class FakeService:
@@ -37,7 +37,7 @@ class FakeService:
 
     async def world_context(self) -> WorldContextOutput:
         self.context_calls += 1
-        return WorldContextOutput(ok=True, world_path="$thenewRJ:rj.ent", selection_count=0)
+        return WorldContextOutput(ok=True, world_path="$myaddon:world.ent", selection_count=0)
 
     async def vegetation_catalog(self) -> VegetationCatalogOutput:
         return VegetationCatalogOutput(
@@ -167,7 +167,7 @@ async def test_invalid_arguments_do_not_reach_service() -> None:
     [
         {"count": "1"},
         {"count": True},
-        {"APIFunc": "RJMCP_VegetationApply"},
+        {"APIFunc": "EnfusionMCP_VegetationApply"},
     ],
 )
 @pytest.mark.asyncio

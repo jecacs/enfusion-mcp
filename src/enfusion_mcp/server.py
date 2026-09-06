@@ -145,7 +145,7 @@ def create_server(service: ToolService) -> MCPServer[None]:
     """Create the exact five-tool safe MCP server."""
 
     mcp: MCPServer[None] = SafeMCPServer(
-        name="enfusion-mcp-rj",
+        name="enfusion-mcp",
         version=__version__,
         instructions=SERVER_INSTRUCTIONS,
         log_level="WARNING",

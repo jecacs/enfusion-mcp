@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from enfusion_mcp_rj.path_types import (
+from enfusion_mcp.path_types import (
     EnginePath,
     HostPath,
     PathContainmentError,
@@ -83,20 +83,20 @@ def test_windows_shaped_types_reject_unc_device_traversal_and_nul(
 
 def test_windows_shaped_types_preserve_spaces_unicode_and_normalize_drive() -> None:
     wine = WinePath("c:\\users\\steamuser\\Моя карта\\big tree.c")
-    engine = EnginePath("z:\\Проекты\\new rj")
+    engine = EnginePath("z:\\Проекты\\Пример проекта")
 
     assert wine.value == "C:\\users\\steamuser\\Моя карта\\big tree.c"
     assert wine.drive == "C"
     assert wine.parts == ("users", "steamuser", "Моя карта", "big tree.c")
-    assert engine.value == "Z:\\Проекты\\new rj"
+    assert engine.value == "Z:\\Проекты\\Пример проекта"
 
 
 @pytest.mark.parametrize(
     "value",
     [
-        "$thenewRJ:rj.ent",
-        "$thenewRJ:Prefabs/Vegetation/Куст 01.et",
-        "{604B36AADC73C902}Prefabs/Vegetation/Bush.et",
+        "$myaddon:world.ent",
+        "$myaddon:Prefabs/Vegetation/Куст 01.et",
+        "{0123456789ABCDEF}Prefabs/Vegetation/Bush.et",
     ],
 )
 def test_resource_name_accepts_engine_resource_syntax(value: str) -> None:
@@ -106,12 +106,12 @@ def test_resource_name_accepts_engine_resource_syntax(value: str) -> None:
 @pytest.mark.parametrize(
     "value",
     [
-        "/project/rj.ent",
-        r"C:\project\rj.ent",
-        "$thenewRJ:../rj.ent",
-        "$thenewRJ:/rj.ent",
-        "$thenewRJ:folder//rj.ent",
-        "$thenewRJ:rj.ent\x00suffix",
+        "/project/world.ent",
+        r"C:\project\world.ent",
+        "$myaddon:../world.ent",
+        "$myaddon:/world.ent",
+        "$myaddon:folder//world.ent",
+        "$myaddon:world.ent\x00suffix",
         "not-a-resource.ent",
     ],
 )
@@ -243,9 +243,9 @@ def test_resource_and_engine_paths_are_never_implicitly_converted(tmp_path: Path
     mapper = ProtonPathMapper(HostPath(os.fspath(prefix)), HostPath(os.fspath(project)))
 
     with pytest.raises(TypeError, match="HostPath"):
-        mapper.host_to_wine(ResourceName("$thenewRJ:rj.ent"))  # type: ignore[arg-type]
+        mapper.host_to_wine(ResourceName("$myaddon:world.ent"))  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="WinePath"):
-        mapper.wine_to_host(ResourceName("$thenewRJ:rj.ent"))  # type: ignore[arg-type]
+        mapper.wine_to_host(ResourceName("$myaddon:world.ent"))  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="WinePath"):
         mapper.wine_to_host(EnginePath(r"C:\project"))  # type: ignore[arg-type]
 
