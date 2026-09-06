@@ -97,7 +97,7 @@ class RJMCP_GetContextResponse : JsonApiStruct
 		currentLayerId = -1;
 		mode = "unknown";
 		bridgeProtocolVersion = "rjmcp-bridge-v1";
-		bridgeBuildId = "rjmcp-bridge-v1-unverified-live";
+		bridgeBuildId = "rjmcp-bridge-v1-review-fixes";
 		catalogHash = "09acc4254f9f2adfc5b339b1160006526f54d3668c2016442d58609016b1d596";
 	}
 

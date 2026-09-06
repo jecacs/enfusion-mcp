@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import ConfigDict, Field, model_validator
 
 from .models import CanonicalUUIDString, StrictModel
 
 BRIDGE_PROTOCOL_VERSION = "rjmcp-bridge-v1"
-BRIDGE_BUILD_ID = "rjmcp-bridge-v1-unverified-live"
+BRIDGE_BUILD_ID = "rjmcp-bridge-v1-review-fixes"
 BRIDGE_ERROR_CODE_PATTERN = r"^(?:|[A-Z][A-Z0-9_]*)$"
 MAX_CONTEXT_POINTS = 1024
 MAX_TERRAIN_POINTS = 1000
@@ -176,10 +176,10 @@ class BridgeVegetationApplyRequest(BridgeModel):
 
 class BridgeVegetationApplyResponse(BridgeModel):
     status: Literal["ok", "error"]
-    error_code: str = Field(default="", max_length=64, pattern=BRIDGE_ERROR_CODE_PATTERN)
-    message: str = Field(default="", max_length=2048)
-    bridge_protocol_version: str
-    bridge_build_id: str
+    error_code: str = Field(max_length=64, pattern=BRIDGE_ERROR_CODE_PATTERN)
+    message: str = Field(max_length=2048)
+    bridge_protocol_version: str = Field(min_length=1, max_length=64)
+    bridge_build_id: str = Field(min_length=1, max_length=128)
     catalog_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     plan_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     operation_id: CanonicalUUIDString
@@ -197,5 +197,15 @@ class BridgeVegetationApplyResponse(BridgeModel):
     expected_count: int = Field(ge=0, le=MAX_PLACEMENTS)
     matching_count: int = Field(ge=0, le=MAX_PLACEMENTS)
     created_count: int = Field(ge=0, le=MAX_PLACEMENTS)
-    rollback_verified: bool = False
-    entity_names: list[str] = Field(default_factory=list, max_length=MAX_PLACEMENTS)
+    rollback_verified: bool
+    entity_names: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(
+        max_length=MAX_PLACEMENTS
+    )
+
+    @model_validator(mode="after")
+    def coherent_status(self) -> Self:
+        if self.status == "error" and not self.error_code:
+            raise ValueError("error response requires errorCode")
+        if self.status == "ok" and self.error_code:
+            raise ValueError("successful response must not carry errorCode")
+        return self

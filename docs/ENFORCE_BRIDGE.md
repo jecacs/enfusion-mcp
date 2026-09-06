@@ -16,8 +16,8 @@ not installed by any server tool or development command.
 
 ## Source evidence
 
-The source was written against these published signatures, checked on
-2026-09-05:
+The source was written against these published signatures and examples,
+rechecked on 2026-09-06:
 
 - [Workbench NET API](https://community.bistudio.com/wikidata/external-data/arma-reforger/EnfusionScriptAPIPublic/Page_NetApi.html):
   `NetApiHandler`, `JsonApiStruct`, request/response framing;
@@ -29,13 +29,56 @@ The source was written against these published signatures, checked on
   `IsClosed`, `GetPointsPositions`, and inherited `CoordToParent`;
 - [SCR_TerrainHelper](https://community.bistudio.com/wikidata/external-data/arma-reforger/ArmaReforgerScriptAPIPublic/interfaceSCR__TerrainHelper.html):
   `GetTerrainNormal(inout vector, BaseWorld, ...)` and its Y-modifying
-  behaviour.
+  behaviour;
+- [IEntity](https://community.bistudio.com/wikidata/external-data/arma-reforger/EnfusionScriptAPIPublic/interfaceIEntity.html):
+  `GetYawPitchRoll` returns yaw/pitch/roll, while `GetAngles` returns X/Y/Z
+  rotations; these two orders must not be mixed;
+- Bohemia Interactive's official
+  [SampleWorldEditorTool.c](https://github.com/BohemiaInteractive/Arma-Reforger-Samples/blob/main/SampleMod_WorkbenchPlugin/Scripts/WorkbenchGame/SamplePlugins/SampleWorldEditorTool.c):
+  `RandomizeScale` and `OnMousePressEvent` write the entity-source `scale`
+  property through `WorldEditorAPI.SetVariableValue` inside an entity action.
+  `OnMouseReleaseEvent` writes yaw from `VectorToAngles()[0]` to the source
+  `angleY` property. The bridge uses these API operations; it does not copy
+  the sample tool or its randomization/selection behaviour.
 
 MIT-licensed upstream handlers at commit
 `0acfa884228477043c6b4c2b8c7f0c270d648398` supplied examples of the
 `JsonApiStruct`/`RegV`/`OnPack` and `Workbench.GetModule(WorldEditor)` patterns.
 The new handlers have independent schemas and a narrow policy. Primitive
 response arrays use `ItemString`, never the old `StoreString("", ...)` pattern.
+
+## Editor-source transforms
+
+The reviewed build fingerprint is `rjmcp-bridge-v1-review-fixes`. Creation uses
+`CreateEntity(..., vector.Zero)` followed by checked editor-source writes to
+`angleY` and `scale`, in the same `BeginEntityAction`/`EndEntityAction` batch.
+This follows the official sample's explicit yaw property and does not assume
+that a nonzero `CreateEntity` rotation argument uses yaw/pitch/roll order.
+There are no runtime-only entity transform setters.
+
+Every returned entity source enters the cleanup set before either property
+write. Current source values are read first; a value already matching the plan
+does not cause a no-change setter call. Every setter that is called has its
+boolean result checked. A failed read, setter, or verification ends the create
+loop and enters the existing checked rollback path.
+
+Verification reads source `angleY`/`scale` and the runtime entity again. It checks
+world position within 0.01 m, yaw/pitch/roll via `GetYawPitchRoll` within 0.01
+degrees using circular angular distance, and both stored/runtime scale within
+0.000001. Pitch and roll must remain zero. Scale must be finite, positive, no
+greater than 10, and placements must lie in the declared plan scale range.
+The same checks run after the action ends and during reconciliation. Actual
+editor reinitialization, persisted source round-trips and Undo remain live
+acceptance checks; source inspection does not prove their runtime behaviour.
+
+Before scanning deterministic entities or returning any reconciliation
+classification, the handler requires both `IsDoingEditAction()` and
+`UndoOrRedoIsRestoring()` to be false. An active edit/Undo/Redo returns
+`EDITOR_BUSY` without classifying the batch, so an intermediate entity view
+cannot resolve an uncertain operation or release the target-wide mutation
+fence. Layer locks and terrain changes remain create-only checks: they do not
+prevent read-only reconciliation once the editor is stable. Create repeats
+the edit/Undo/Redo guard before its terrain preflight and mutation action.
 
 ## Fail-closed production catalog
 
@@ -55,9 +98,20 @@ catalog, regenerate/check both allowlists, and produce new handler hashes.
 ## Evidence level and known risks
 
 Static contract tests parse the actual staged `.c` files, compare `RegV` and
-dynamically packed array fields with the real Python Pydantic wire models, check
-endpoint class names, and reject broad/mutating APIs in read handlers. This is
-`STATIC_VERIFIED`, not compilation evidence.
+dynamically packed array fields with the Python wire models, check endpoint
+class names, and reject broad/mutating APIs in read handlers. The yaw tests
+check the documented getter order and the source property used by the official
+sample; they do not execute Enforce. Setter tests check cleanup ownership,
+checked failure branches, source/runtime read-back and action ordering. This
+is `STATIC_VERIFIED`, not compilation or physical-transform evidence.
+
+Python required-field tests establish the Python validation boundary. Enforce
+request constructors now use invalid defaults where zero is otherwise valid:
+terrain X/Z start outside the allowed coordinate bound, and subscene/max slope
+start at -1. These defaults prevent omitted values silently becoming accepted
+zeroes. Static checks cover those constructor assignments and rejection checks;
+actual JSON scalar types, missing/null fields, arrays-of-objects decoding and
+required/optional equivalence still require live decoder tests.
 
 Until a later explicit installation and clean live `ValidateScripts`:
 
@@ -65,9 +119,10 @@ Until a later explicit installation and clean live `ValidateScripts`:
   `UNVERIFIED_LIVE`;
 - actual layer-not-found sentinel and resource-name round-trip are
   `UNVERIFIED_LIVE`;
-- `CreateEntity` prefab identity and transform angle conventions are
-  `UNVERIFIED_LIVE`; runtime `IEntity.SetScale` is deliberately absent and the
-  staged implementation accepts only identity scale;
+- `CreateEntity` prefab identity, source `angleY`/`scale` read/write round-trips,
+  entity reinitialization, and final yaw/scale transforms are `UNVERIFIED_LIVE`;
+  the source-level property names and getter conventions have official API and
+  sample evidence, but have not been exercised in this user's Tools build;
 - cleanup and `EndEntityAction` semantics, including an empty history point on
   successful rollback, are `UNVERIFIED_LIVE`;
 - exactly one Ctrl+Z removing a completed batch is `UNVERIFIED_LIVE`.
@@ -78,8 +133,8 @@ evaluation exists.
 
 The current artifact is not the live-mutation revision. After a permissioned
 read-only compile/contract stage, a later reviewed commit must establish the
-exact catalog, reconcile the planner's scale-range interface with the handler's
-identity-scale-only policy, bump the build fingerprint, explicitly change the
-hard gate, show a new installation manifest/hashes, obtain renewed installation
-approval, and pass `ValidateScripts` again. Separate `применяй` approval is
-still required for the exact shown plan.
+exact catalog, prepare the explicit live acceptance of source transforms and
+rollback, bump the build fingerprint, explicitly change the hard gate, show a
+new installation manifest/hashes, obtain renewed installation approval, and
+pass `ValidateScripts` again. Separate `применяй` approval is still required
+for the exact shown plan.

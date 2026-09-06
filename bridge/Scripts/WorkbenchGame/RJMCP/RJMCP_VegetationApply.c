@@ -41,6 +41,9 @@ class RJMCP_VegetationApplyRequest : JsonApiStruct
 
 	void RJMCP_VegetationApplyRequest()
 	{
+		// Zero is valid for these fields, so use invalid missing-value sentinels.
+		subscene = -1;
+		maxSlopeDeg = -1.0;
 		RegV("mode");
 		RegV("planId");
 		RegV("operationId");
@@ -107,7 +110,7 @@ class RJMCP_VegetationApplyResponse : JsonApiStruct
 		RegV("createdCount");
 		RegV("rollbackVerified");
 		bridgeProtocolVersion = "rjmcp-bridge-v1";
-		bridgeBuildId = "rjmcp-bridge-v1-unverified-live";
+		bridgeBuildId = "rjmcp-bridge-v1-review-fixes";
 		catalogHash = "09acc4254f9f2adfc5b339b1160006526f54d3668c2016442d58609016b1d596";
 		state = "REJECTED";
 		m_aEntityNames = {};
@@ -125,13 +128,14 @@ class RJMCP_VegetationApplyResponse : JsonApiStruct
 class RJMCP_VegetationApply : NetApiHandler
 {
 	static const string ALLOWED_WORLD = "$thenewRJ:rj.ent";
-	static const string BRIDGE_BUILD_ID = "rjmcp-bridge-v1-unverified-live";
+	static const string BRIDGE_BUILD_ID = "rjmcp-bridge-v1-review-fixes";
 	static const string CATALOG_HASH = "09acc4254f9f2adfc5b339b1160006526f54d3668c2016442d58609016b1d596";
 	// This gate must remain false until the staged source compiles and the exact
 	// create/reconcile/Undo workflow is explicitly validated in live Workbench.
 	static const bool MUTATION_IMPLEMENTATION_VALIDATED = false;
 	static const float DEG_TO_RAD = 0.017453292519943295;
 	static const float TRANSFORM_EPSILON = 0.01;
+	static const float SCALE_EPSILON = 0.000001;
 
 	static void Fail(
 		RJMCP_VegetationApplyResponse response,
@@ -175,6 +179,14 @@ class RJMCP_VegetationApply : NetApiHandler
 		if (difference > 180.0)
 			difference = 360.0 - difference;
 		return Math.AbsFloat(difference);
+	}
+
+	static bool OrientationMatches(vector yawPitchRoll, float plannedYaw)
+	{
+		return IsFiniteVector(yawPitchRoll)
+			&& CircularYawDifference(yawPitchRoll[0], plannedYaw) <= TRANSFORM_EPSILON
+			&& CircularYawDifference(yawPitchRoll[1], 0) <= TRANSFORM_EPSILON
+			&& CircularYawDifference(yawPitchRoll[2], 0) <= TRANSFORM_EPSILON;
 	}
 
 	static bool IsLowerHex64(string value)
@@ -254,15 +266,23 @@ class RJMCP_VegetationApply : NetApiHandler
 		if (!entity)
 			return false;
 		vector position = entity.GetOrigin();
-		vector angles = entity.GetAngles();
+		vector yawPitchRoll = entity.GetYawPitchRoll();
 		float actualScale = entity.GetScale();
-		if (!IsFiniteVector(position) || !IsFiniteVector(angles) || !IsFiniteBounded(actualScale))
+		float sourceScale;
+		float sourceYaw;
+		if (!source.Get("scale", sourceScale)
+			|| !source.Get("angleY", sourceYaw) || !IsFiniteBounded(sourceYaw)
+			|| !IsFiniteBounded(sourceScale) || sourceScale <= 0 || sourceScale > 10
+			|| !IsFiniteVector(position)
+			|| !IsFiniteBounded(actualScale) || actualScale <= 0 || actualScale > 10)
 			return false;
 		if (Math.AbsFloat(position[0] - req.x[index]) > TRANSFORM_EPSILON
 			|| Math.AbsFloat(position[1] - req.y[index]) > TRANSFORM_EPSILON
 			|| Math.AbsFloat(position[2] - req.z[index]) > TRANSFORM_EPSILON
-			|| CircularYawDifference(angles[0], req.yaw[index]) > TRANSFORM_EPSILON
-			|| Math.AbsFloat(actualScale - req.scale[index]) > TRANSFORM_EPSILON)
+			|| !OrientationMatches(yawPitchRoll, req.yaw[index])
+			|| CircularYawDifference(sourceYaw, req.yaw[index]) > TRANSFORM_EPSILON
+			|| Math.AbsFloat(sourceScale - req.scale[index]) > SCALE_EPSILON
+			|| Math.AbsFloat(actualScale - req.scale[index]) > SCALE_EPSILON)
 			return false;
 		return true;
 	}
@@ -391,6 +411,11 @@ class RJMCP_VegetationApply : NetApiHandler
 			Fail(response, "WORLD_NOT_ALLOWED", "Request world is not allowlisted");
 			return response;
 		}
+		if (req.subscene < 0)
+		{
+			Fail(response, "INVALID_SUBSCENE", "subscene is required and must be non-negative");
+			return response;
+		}
 		if (req.targetLayer != "MCP_Preview" && req.targetLayer != "MCP_Vegetation")
 		{
 			Fail(response, "LAYER_NOT_ALLOWED", "Target layer is not allowlisted");
@@ -450,9 +475,17 @@ class RJMCP_VegetationApply : NetApiHandler
 			return response;
 		}
 
-		// Reconciliation deliberately stops after common identity/world/subscene/
-		// layer-existence checks. It observes deterministic entities even when the
-		// layer became locked, terrain changed, or the editor is temporarily busy.
+		// A partial view during an edit action or Undo/Redo must never be used to
+		// resolve the durable operation or release the target-wide safety fence.
+		if (api.IsDoingEditAction() || api.UndoOrRedoIsRestoring())
+		{
+			Fail(response, "EDITOR_BUSY", "Entity reconciliation requires a stable editor state");
+			return response;
+		}
+
+		// Reconciliation stops after common identity/world/subscene/layer and
+		// stable-editor checks. Layer locks and changed terrain do not hide an
+		// otherwise stable deterministic batch from read-only reconciliation.
 		int presentCount = 0;
 		bool entityConflict = false;
 		for (int existingIndex = 0; existingIndex < req.count; existingIndex++)
@@ -519,16 +552,11 @@ class RJMCP_VegetationApply : NetApiHandler
 			Fail(response, "INVALID_CONSTRAINT", "Numeric constraints are invalid");
 			return response;
 		}
-		if (req.scaleMin != 1.0 || req.scaleMax != 1.0)
-		{
-			Fail(response, "UNSUPPORTED_SCALE", "Unvalidated mutation path permits only scale 1");
-			return response;
-		}
 		for (int scaleIndex = 0; scaleIndex < req.count; scaleIndex++)
 		{
-			if (req.scale[scaleIndex] != 1.0)
+			if (req.scale[scaleIndex] < req.scaleMin || req.scale[scaleIndex] > req.scaleMax)
 			{
-				Fail(response, "UNSUPPORTED_SCALE", "Unvalidated mutation path permits only scale 1");
+				Fail(response, "INVALID_SCALE", "Placement scale is outside the declared range");
 				return response;
 			}
 		}
@@ -635,14 +663,13 @@ class RJMCP_VegetationApply : NetApiHandler
 		for (int createIndex = 0; createIndex < req.count; createIndex++)
 		{
 			vector position = Vector(req.x[createIndex], req.y[createIndex], req.z[createIndex]);
-			vector angles = Vector(req.yaw[createIndex], 0, 0);
 			IEntitySource source = api.CreateEntity(
 				req.prefabs[createIndex],
 				req.entityNames[createIndex],
 				layerId,
 				null,
 				position,
-				angles
+				vector.Zero
 			);
 			if (!source)
 			{
@@ -663,6 +690,38 @@ class RJMCP_VegetationApply : NetApiHandler
 					break;
 				}
 				createdNames.Insert(source.GetName());
+			}
+			// Follow the official SampleWorldEditorTool: create at zero rotation,
+			// then write the Y-axis source property for yaw. This avoids mixing
+			// CreateEntity's rotation argument with IEntity's yaw/pitch/roll API.
+			// Both source edits participate in this entity action and Undo; the
+			// source is already in the cleanup set if either setter fails.
+			float currentSourceYaw;
+			float currentSourceScale;
+			if (!source.Get("angleY", currentSourceYaw) || !IsFiniteBounded(currentSourceYaw)
+				|| !source.Get("scale", currentSourceScale) || !IsFiniteBounded(currentSourceScale))
+			{
+				createFailed = true;
+				break;
+			}
+			// Avoid asking the editor for a no-change write. The same tolerances
+			// are used below when verifying both the source and runtime entity.
+			if (CircularYawDifference(currentSourceYaw, req.yaw[createIndex]) > TRANSFORM_EPSILON)
+			{
+				if (!api.SetVariableValue(source, null, "angleY", req.yaw[createIndex].ToString()))
+				{
+					createFailed = true;
+					break;
+				}
+			}
+			if (currentSourceScale <= 0 || currentSourceScale > 10
+				|| Math.AbsFloat(currentSourceScale - req.scale[createIndex]) > SCALE_EPSILON)
+			{
+				if (!api.SetVariableValue(source, null, "scale", req.scale[createIndex].ToString()))
+				{
+					createFailed = true;
+					break;
+				}
 			}
 			if (!EntityMatches(api, source, req, createIndex, layerId))
 			{

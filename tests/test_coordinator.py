@@ -23,7 +23,7 @@ from enfusion_mcp_rj.coordinator import (
     CoordinatorErrorCode,
     ReconciliationClassification,
 )
-from enfusion_mcp_rj.ledger import Ledger, OperationState
+from enfusion_mcp_rj.ledger import Ledger, OperationRecord, OperationState
 from enfusion_mcp_rj.locking import TargetLockManager, TargetScope
 from enfusion_mcp_rj.models import Vec3
 from enfusion_mcp_rj.net_api import (
@@ -742,8 +742,8 @@ async def test_existing_same_key_reconcile_ignores_current_selection_preflight(
         ),
         (
             ReconciliationClassification.NONE,
-            OperationState.UNDONE,
-            CoordinatorErrorCode.UNDONE,
+            OperationState.UNKNOWN,
+            CoordinatorErrorCode.UNKNOWN_OUTCOME,
         ),
     ],
 )
@@ -912,7 +912,7 @@ async def test_mutation_response_identity_mismatch_is_unknown(
 
 
 @pytest.mark.parametrize("initial_state", ["PARTIAL", "ROLLBACK_FAILED"])
-async def test_reconcile_none_verifies_cleanup_after_partial_or_failed_rollback(
+async def test_reconcile_none_cannot_verify_cleanup_after_partial_or_failed_rollback(
     tmp_path: Path, initial_state: str
 ) -> None:
     bridge = ScriptedBridge()
@@ -926,11 +926,18 @@ async def test_reconcile_none_verifies_cleanup_after_partial_or_failed_rollback(
 
     verified = await coordinator.apply(plan_id, _KEY_ONE)
 
-    assert verified.state is OperationState.ROLLBACK_VERIFIED
-    assert verified.error_code is CoordinatorErrorCode.MUTATION_ROLLED_BACK
+    assert verified.state is first.state
+    assert verified.error_code in {
+        CoordinatorErrorCode.PARTIAL_OPERATION,
+        CoordinatorErrorCode.ROLLBACK_FAILED,
+    }
     assert verified.reconciled
     assert len(bridge.mutation_calls) == 1
     assert len(bridge.reconcile_calls) == 1
+    other_plan = _store_plan(ledger, seed=2)
+    with pytest.raises(CoordinatorError) as captured:
+        await coordinator.apply(other_plan, _KEY_TWO)
+    assert captured.value.code is CoordinatorErrorCode.TARGET_OPERATION_UNRESOLVED
 
 
 @pytest.mark.parametrize(
@@ -1241,3 +1248,221 @@ async def test_process_crash_after_mutation_is_recovered_and_never_resent(
     assert log.count("mutation:start") == 0
     assert log.count("reconcile") == 1
     assert log.count("context") == 1
+
+
+@pytest.mark.parametrize(
+    "unresolved_state",
+    ["UNKNOWN", "PARTIAL", "ROLLBACK_FAILED", "CHANGED"],
+)
+async def test_unresolved_target_blocks_other_plan_before_context_or_mutation(
+    tmp_path: Path, unresolved_state: str
+) -> None:
+    bridge = ScriptedBridge()
+    bridge.mutation_state = unresolved_state
+    bridge.mutation_created_count = 1
+    coordinator, ledger = _coordinator(tmp_path, bridge)
+    first_plan = _store_plan(ledger, seed=1)
+    second_plan = _store_plan(ledger, seed=2)
+    await coordinator.apply(first_plan, _KEY_ONE)
+    read_count = len(bridge.read_calls)
+
+    with pytest.raises(CoordinatorError) as captured:
+        await coordinator.apply(second_plan, _KEY_TWO)
+
+    assert captured.value.code is CoordinatorErrorCode.TARGET_OPERATION_UNRESOLVED
+    assert captured.value.blocking_operation == ledger.get_operation(_KEY_ONE)
+    assert len(bridge.read_calls) == read_count
+    assert len(bridge.mutation_calls) == 1
+    assert ledger.get_operation_for_plan(second_plan) is None
+
+
+async def test_unknown_absence_keeps_target_blocked_but_complete_reconcile_unlocks(
+    tmp_path: Path,
+) -> None:
+    bridge = ScriptedBridge()
+    bridge.mutation_error = TimeoutError("lost after send")
+    coordinator, ledger = _coordinator(tmp_path, bridge)
+    first_plan = _store_plan(ledger, seed=1)
+    second_plan = _store_plan(ledger, seed=2)
+    await coordinator.apply(first_plan, _KEY_ONE)
+    bridge.reconciliation = ReconciliationClassification.NONE
+    absent = await coordinator.apply(first_plan, _KEY_ONE)
+    assert absent.state is OperationState.UNKNOWN
+    with pytest.raises(CoordinatorError) as captured:
+        await coordinator.apply(second_plan, _KEY_TWO)
+    assert captured.value.code is CoordinatorErrorCode.TARGET_OPERATION_UNRESOLVED
+    bridge.reconciliation = ReconciliationClassification.COMPLETE
+    confirmed = await coordinator.apply(first_plan, _KEY_ONE)
+    assert confirmed.ok
+    bridge.mutation_error = None
+    assert (await coordinator.apply(second_plan, _KEY_TWO)).ok
+    assert len(bridge.mutation_calls) == 2
+
+
+async def test_key_bound_to_another_plan_conflicts_before_context(tmp_path: Path) -> None:
+    bridge = ScriptedBridge()
+    coordinator, ledger = _coordinator(tmp_path, bridge)
+    first_plan = _store_plan(ledger, seed=1)
+    second_plan = _store_plan(ledger, seed=2)
+    assert (await coordinator.apply(first_plan, _KEY_ONE)).ok
+    read_count = len(bridge.read_calls)
+    with pytest.raises(CoordinatorError) as captured:
+        await coordinator.apply(second_plan, _KEY_ONE)
+    assert captured.value.code is CoordinatorErrorCode.OPERATION_CONFLICT
+    assert captured.value.blocking_operation == ledger.get_operation(_KEY_ONE)
+    assert len(bridge.read_calls) == read_count
+    assert len(bridge.mutation_calls) == 1
+
+
+@pytest.mark.parametrize(
+    "initial_state", [None, OperationState.PLANNED, OperationState.PRE_SEND_FAILED]
+)
+async def test_expiry_at_final_send_claim_rejects_every_path_after_preflight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, initial_state: OperationState | None
+) -> None:
+    bridge = ScriptedBridge()
+    coordinator, ledger = _coordinator(tmp_path, bridge)
+    plan_id = _store_plan(ledger)
+    if initial_state is not None:
+        ledger.bind_operation(plan_id=plan_id, idempotency_key=_KEY_ONE)
+        if initial_state is OperationState.PRE_SEND_FAILED:
+            ledger.transition_operation(_KEY_ONE, OperationState.PRE_SEND_FAILED)
+    original_transition = ledger.transition_operation
+
+    def expires_at_claim(  # noqa: PLR0913 - exact ledger method signature
+        operation_id: str,
+        to_state: OperationState,
+        *,
+        expected_state: OperationState | None = None,
+        detail: str | None = None,
+        now: datetime | None = None,
+        target_endpoint: str | None = None,
+    ) -> OperationRecord:
+        return original_transition(
+            operation_id,
+            to_state,
+            expected_state=expected_state,
+            detail=detail,
+            now=_EXPIRES if to_state is OperationState.SENDING else now,
+            target_endpoint=target_endpoint,
+        )
+
+    monkeypatch.setattr(ledger, "transition_operation", expires_at_claim)
+    with pytest.raises(CoordinatorError) as captured:
+        await coordinator.apply(plan_id, _KEY_ONE)
+    assert captured.value.code is CoordinatorErrorCode.PLAN_EXPIRED
+    assert len(bridge.read_calls) == 1
+    assert bridge.mutation_calls == []
+    assert ledger.get_operation(_KEY_ONE).state is (initial_state or OperationState.PLANNED)
+
+
+async def test_large_unexpected_response_field_cannot_prevent_durable_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bridge = ScriptedBridge()
+    coordinator, ledger = _coordinator(tmp_path, bridge)
+    plan_id = _store_plan(ledger)
+    original_call = bridge.call_mutation
+
+    async def malformed_call(
+        api_func: str, params: Mapping[str, JsonValue] | None = None
+    ) -> JsonValue:
+        response = await original_call(api_func, params)
+        assert isinstance(response, dict)
+        response["x" * 10_000] = 0
+        return response
+
+    monkeypatch.setattr(bridge, "call_mutation", malformed_call)
+    result = await coordinator.apply(plan_id, _KEY_ONE)
+    assert result.state is OperationState.UNKNOWN
+    assert result.error_code is CoordinatorErrorCode.UNKNOWN_OUTCOME
+    record = ledger.get_operation(_KEY_ONE)
+    assert record.state is OperationState.UNKNOWN
+    assert record.detail is not None and len(record.detail) <= 4096
+    assert "truncated sha256=" in record.detail
+    recovered = await coordinator.apply(plan_id, _KEY_ONE)
+    assert recovered.ok and recovered.reconciled
+    assert len(bridge.mutation_calls) == 1
+
+
+async def test_large_backend_exception_still_records_unknown(tmp_path: Path) -> None:
+    bridge = ScriptedBridge()
+    bridge.mutation_error = RuntimeError("fault" * 10_000)
+    coordinator, ledger = _coordinator(tmp_path, bridge)
+    result = await coordinator.apply(_store_plan(ledger), _KEY_ONE)
+    assert result.state is OperationState.UNKNOWN
+    record = ledger.get_operation(_KEY_ONE)
+    assert record.detail is not None and len(record.detail) <= 4096
+    assert "truncated sha256=" in record.detail
+
+
+async def test_unknown_then_partial_then_absent_still_blocks_new_plan(tmp_path: Path) -> None:
+    bridge = ScriptedBridge()
+    bridge.mutation_error = TimeoutError("lost after send")
+    coordinator, ledger = _coordinator(tmp_path, bridge)
+    plan_id = _store_plan(ledger)
+    await coordinator.apply(plan_id, _KEY_ONE)
+    bridge.reconciliation = ReconciliationClassification.PARTIAL
+    assert (await coordinator.apply(plan_id, _KEY_ONE)).state is OperationState.PARTIAL
+    bridge.reconciliation = ReconciliationClassification.NONE
+    absent = await coordinator.apply(plan_id, _KEY_ONE)
+    assert absent.state is OperationState.PARTIAL
+    assert absent.error_code is CoordinatorErrorCode.PARTIAL_OPERATION
+    with pytest.raises(CoordinatorError) as captured:
+        await coordinator.apply(_store_plan(ledger, seed=1), _KEY_TWO)
+    assert captured.value.code is CoordinatorErrorCode.TARGET_OPERATION_UNRESOLVED
+    assert len(bridge.mutation_calls) == 1
+
+
+async def test_verified_rollback_claim_with_surviving_matches_is_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bridge = ScriptedBridge()
+    bridge.mutation_state = "ROLLBACK_VERIFIED"
+    bridge.mutation_created_count = 1
+    coordinator, ledger = _coordinator(tmp_path, bridge)
+    original_call = bridge.call_mutation
+
+    async def contradictory_call(
+        api_func: str, params: Mapping[str, JsonValue] | None = None
+    ) -> JsonValue:
+        response = await original_call(api_func, params)
+        assert isinstance(response, dict)
+        response["matchingCount"] = 1
+        return response
+
+    monkeypatch.setattr(bridge, "call_mutation", contradictory_call)
+    result = await coordinator.apply(_store_plan(ledger), _KEY_ONE)
+    assert result.state is OperationState.UNKNOWN
+    assert result.error_code is CoordinatorErrorCode.UNKNOWN_OUTCOME
+    assert ledger.get_operation(_KEY_ONE).state is OperationState.UNKNOWN
+
+
+async def test_unknown_plan_blocks_different_plan_in_another_process(tmp_path: Path) -> None:
+    bridge = ScriptedBridge()
+    bridge.mutation_error = TimeoutError("response lost after mutation send")
+    coordinator, ledger = _coordinator(tmp_path, bridge)
+    first_plan = _store_plan(ledger, seed=1)
+    second_plan = _store_plan(ledger, seed=2)
+    assert (await coordinator.apply(first_plan, _KEY_ONE)).state is OperationState.UNKNOWN
+    context = multiprocessing.get_context("spawn")
+    parent, child = context.Pipe()
+    log_path = tmp_path / "second-process.log"
+    process = context.Process(
+        target=_process_apply,
+        args=(str(tmp_path), second_plan, _KEY_TWO, str(log_path), str(tmp_path / "marker"), child),
+    )
+    process.start()
+    child.close()
+    assert parent.poll(10)
+    assert parent.recv() == "ready"
+    parent.send("go")
+    assert parent.poll(10)
+    result = parent.recv()
+    process.join(timeout=10)
+    parent.close()
+    assert process.exitcode == 0
+    assert result == ("error", "TARGET_OPERATION_UNRESOLVED")
+    assert not log_path.exists()  # No context, mutation or reconciliation reached the fake.
+    assert ledger.get_operation_for_plan(second_plan) is None
+    assert ledger.get_operation(_KEY_ONE).state is OperationState.UNKNOWN

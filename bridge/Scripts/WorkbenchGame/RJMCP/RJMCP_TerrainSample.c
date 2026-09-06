@@ -16,6 +16,9 @@ class RJMCP_TerrainPointRequest : JsonApiStruct
 
 	void RJMCP_TerrainPointRequest()
 	{
+		// A missing coordinate must not silently become the valid coordinate zero.
+		x = 1000001.0;
+		z = 1000001.0;
 		RegV("x");
 		RegV("z");
 	}

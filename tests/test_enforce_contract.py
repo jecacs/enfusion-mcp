@@ -225,10 +225,40 @@ def test_nested_python_models_match_real_handler_regv_fields(
 
 
 def test_all_mutation_request_fields_are_required_by_python_before_connection() -> None:
+    # This is the Python boundary, not evidence of Enforce decoder behaviour.
     schema = BridgeVegetationApplyRequest.model_json_schema(by_alias=True)
     assert set(schema["required"]) == set(schema["properties"])
     terrain_schema = BridgeTerrainSampleRequest.model_json_schema(by_alias=True)
     assert set(terrain_schema["required"]) == {"points"}
+
+
+def test_apply_response_requires_every_always_packed_handler_field() -> None:
+    schema = BridgeVegetationApplyResponse.model_json_schema(by_alias=True)
+    handler_fields = _wire_fields(
+        _source("RJMCP_VegetationApply.c"), "RJMCP_VegetationApplyResponse"
+    )
+    assert set(schema["required"]) == handler_fields
+
+
+def test_missing_zero_valid_scalars_have_invalid_enforce_defaults() -> None:
+    """Inspect actual constructors; live JSON type/cardinality decoding is separate."""
+
+    terrain = _source("RJMCP_TerrainSample.c")
+    point = _class_body(terrain, "RJMCP_TerrainPointRequest")
+    constructor = _block_after(point, "void RJMCP_TerrainPointRequest()")
+    for axis in ("x", "z"):
+        assert f"{axis} = 1000001.0;" in constructor
+    assert "Math.AbsFloat(value) <= 1000000.0" in terrain
+
+    apply = _source("RJMCP_VegetationApply.c")
+    request = _class_body(apply, "RJMCP_VegetationApplyRequest")
+    constructor = _block_after(request, "void RJMCP_VegetationApplyRequest()")
+    assert "subscene = -1;" in constructor
+    assert "maxSlopeDeg = -1.0;" in constructor
+    response = _block_after(apply, "override JsonApiStruct GetResponse")
+    begin = response.index("api.BeginEntityAction(")
+    assert response.index("if (req.subscene < 0)") < begin
+    assert response.index("req.maxSlopeDeg < 0") < begin
 
 
 def test_bridge_models_accept_only_exact_lower_camel_wire_names() -> None:
@@ -383,22 +413,45 @@ def test_apply_compile_live_gate_dominates_every_create_mutation() -> None:
     )
 
 
-def test_apply_rejects_non_identity_scale_and_has_no_runtime_transform_writes() -> None:
+def test_scale_uses_checked_editor_source_writes_inside_cleanup_responsibility() -> None:
     source = _source("RJMCP_VegetationApply.c")
     response_body = _block_after(
         _class_body(source, "RJMCP_VegetationApply"),
         "override JsonApiStruct GetResponse",
     )
     begin = response_body.index('api.BeginEntityAction("RJMCP vegetation')
-    assert response_body.index("req.scaleMin != 1.0 || req.scaleMax != 1.0") < begin
-    assert response_body.index("req.scale[scaleIndex] != 1.0") < begin
-    assert '"UNSUPPORTED_SCALE"' in response_body
+    assert response_body.index("req.scaleMin <= 0 || req.scaleMin > req.scaleMax") < begin
+    assert response_body.index("req.scale[scaleIndex] < req.scaleMin") < begin
+    assert response_body.index("req.scale[scaleIndex] > req.scaleMax") < begin
+    assert '"UNSUPPORTED_SCALE"' not in response_body
+    assert "req.scaleMin != 1.0" not in response_body
+    cleanup_ownership = response_body.index("created.Insert(source);")
+    setter = response_body.index('api.SetVariableValue(source, null, "scale",')
+    verification = response_body.index(
+        "if (!EntityMatches(api, source, req, createIndex, layerId))"
+    )
+    rollback = response_body.index("if (createFailed)")
+    end = response_body.index('api.EndEntityAction("RJMCP vegetation "')
+    assert begin < cleanup_ownership < setter < verification < rollback < end
+    setter_failure = _block_after(
+        response_body,
+        'if (!api.SetVariableValue(source, null, "scale", req.scale[createIndex].ToString()))',
+    )
+    assert "createFailed = true;" in setter_failure
+    assert "break;" in setter_failure
+    assert 'source.Get("scale", currentSourceScale)' in response_body
+    assert "Math.AbsFloat(currentSourceScale - req.scale[createIndex]) > SCALE_EPSILON" in (
+        response_body
+    )
+    matches = _block_after(source, "static bool EntityMatches")
+    assert 'source.Get("scale", sourceScale)' in matches
+    assert "Math.AbsFloat(sourceScale - req.scale[index]) > SCALE_EPSILON" in matches
+    assert "Math.AbsFloat(actualScale - req.scale[index]) > SCALE_EPSILON" in matches
     for forbidden in (
         ".SetScale(",
         ".SetOrigin(",
         ".SetAngles(",
         ".SetYawPitchRoll(",
-        "SetVariableValue(",
     ):
         assert forbidden not in source
 
@@ -409,12 +462,50 @@ def test_apply_uses_finite_exact_and_circular_transform_comparison() -> None:
     circular = _block_after(source, "static float CircularYawDifference")
     assert "while (difference >= 360.0)" in circular
     assert "if (difference > 180.0)" in circular
-    assert "CircularYawDifference(angles[0], req.yaw[index])" in entity_matches
+    assert "entity.GetYawPitchRoll()" in entity_matches
+    assert "OrientationMatches(yawPitchRoll, req.yaw[index])" in entity_matches
     assert "IsFiniteVector(position)" in entity_matches
-    assert "IsFiniteVector(angles)" in entity_matches
     assert "IsFiniteBounded(actualScale)" in entity_matches
     assert "ancestor.GetResourceName() != req.prefabs[index]" in entity_matches
     assert ".GetResourceName().GetPath()" not in source
+
+
+def test_yaw_source_api_and_orientation_axes_match_official_documented_contract() -> None:
+    """Source/API regression, not execution of Enforce or proof of engine transforms.
+
+    Official IEntity documents GetYawPitchRoll as yaw/pitch/roll and GetAngles
+    as X/Y/Z. Bohemia's SampleWorldEditorTool writes yaw to angleY after
+    CreateEntity(..., vector.Zero). This checks those actual call sites.
+    """
+
+    source = _source("RJMCP_VegetationApply.c")
+    assert ".GetAngles()" not in source
+    orientation = _block_after(source, "static bool OrientationMatches")
+    assert "IsFiniteVector(yawPitchRoll)" in orientation
+    comparisons = re.findall(
+        r"CircularYawDifference\(yawPitchRoll\[(\d)\], ([^)]+)\) <= TRANSFORM_EPSILON",
+        orientation,
+    )
+    assert comparisons == [("0", "plannedYaw"), ("1", "0"), ("2", "0")]
+
+    response = _block_after(source, "override JsonApiStruct GetResponse")
+    creation = response[response.index("IEntitySource source = api.CreateEntity(") :]
+    create_arguments = creation[: creation.index(");")]
+    assert "vector.Zero" in create_arguments
+    assert "req.yaw" not in create_arguments
+    cleanup_ownership = response.index("created.Insert(source);")
+    setter = response.index('api.SetVariableValue(source, null, "angleY",')
+    assert cleanup_ownership < setter
+    failure = _block_after(
+        response,
+        'if (!api.SetVariableValue(source, null, "angleY", req.yaw[createIndex].ToString()))',
+    )
+    assert "createFailed = true;" in failure
+    assert "break;" in failure
+    assert 'source.Get("angleY", currentSourceYaw)' in response
+    assert "CircularYawDifference(currentSourceYaw, req.yaw[createIndex]) > TRANSFORM_EPSILON" in (
+        response
+    )
 
 
 def test_apply_rechecks_editor_terrain_layer_and_conflicts_before_begin() -> None:
@@ -446,7 +537,7 @@ def test_apply_rechecks_editor_terrain_layer_and_conflicts_before_begin() -> Non
     assert "targetLayer = 0" not in source
 
 
-def test_reconcile_classifies_before_every_create_only_preflight() -> None:
+def test_reconcile_checks_editor_stability_then_skips_create_only_preflight() -> None:
     source = _source("RJMCP_VegetationApply.c")
     response_body = _block_after(
         _class_body(source, "RJMCP_VegetationApply"),
@@ -455,22 +546,35 @@ def test_reconcile_classifies_before_every_create_only_preflight() -> None:
     world_identity = response_body.index("api.GetWorldPath(actualWorld)")
     layer_identity = response_body.index("api.GetSubsceneLayerId(")
     layer_round_trip = response_body.index("api.GetSubsceneLayerPath(")
+    stable_editor = response_body.index(
+        "if (api.IsDoingEditAction() || api.UndoOrRedoIsRestoring())"
+    )
     classification = response_body.index("int presentCount = 0;")
     reconcile_exit = response_body.index('if (req.mode == "reconcile")')
     gate = response_body.index("if (!MUTATION_IMPLEMENTATION_VALIDATED)")
     edit_mode = response_body.index("api.IsGameMode()")
     prefab_mode = response_body.index("api.IsPrefabEditMode()")
-    editor_busy = response_body.index("api.IsDoingEditAction()")
+    editor_busy = response_body.index("api.IsDoingEditAction()", gate)
     layer_lock = response_body.index("api.IsEntityLayerLockedHierarchy(")
     terrain_bounds = response_body.index("worldEditor.GetTerrainBounds(")
     terrain_sample = response_body.index("api.TryGetTerrainSurfaceY(")
     spacing = response_body.index("SPACING_VIOLATION")
     begin = response_body.index('api.BeginEntityAction("RJMCP vegetation')
 
-    assert world_identity < layer_identity <= layer_round_trip < classification
+    assert world_identity < layer_identity <= layer_round_trip < stable_editor < classification
     assert classification < reconcile_exit < gate
     assert gate < edit_mode < prefab_mode < editor_busy < layer_lock
     assert layer_lock < terrain_bounds < terrain_sample < spacing < begin
+
+    busy_branch = _block_after(
+        response_body,
+        "if (api.IsDoingEditAction() || api.UndoOrRedoIsRestoring())",
+    )
+    assert 'Fail(response, "EDITOR_BUSY",' in busy_branch
+    assert "return response;" in busy_branch
+    assert "BeginEntityAction(" not in busy_branch
+    assert stable_editor < response_body.index('response.state = "COMPLETE";')
+    assert stable_editor < reconcile_exit
 
     reconciliation_region = response_body[classification:gate]
     for state in ('"COMPLETE"', '"PARTIAL"', '"CHANGED"', '"NONE"'):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from uuid import UUID
@@ -18,12 +19,14 @@ from .bridge_models import (
 from .catalog import PRODUCTION_CATALOG, VegetationCatalog
 from .config import ServerConfig
 from .coordinator import ApplyCoordinator, CoordinatorError, CoordinatorErrorCode
-from .ledger import Ledger
+from .ledger import Ledger, LedgerError, OperationNotFoundError, OperationRecord, OperationState
 from .locking import LockError, TargetLockManager, TargetScope
 from .models import (
     BoundsXZ,
+    OperationStateName,
     ToolErrorInfo,
     Vec3,
+    VegetationApplyInput,
     VegetationApplyOutput,
     VegetationCatalogOutput,
     VegetationPlanInput,
@@ -50,6 +53,7 @@ from .planner import (
     finalize_vegetation_plan,
     prepare_vegetation_plan,
     underfilled_output,
+    validate_vegetation_input,
 )
 
 MANUAL_START_GUIDANCE = (
@@ -303,18 +307,10 @@ class SafeRuntimeService:
         return self._catalog.as_output()
 
     async def vegetation_plan(self, request: VegetationPlanInput) -> VegetationPlanOutput:
-        if not self._catalog.production_ready:
-            return VegetationPlanOutput(
-                ok=False,
-                algorithm_version=ALGORITHM_VERSION,
-                requested_count=request.count,
-                target_layer=request.target_layer,
-                error=_tool_error(
-                    "CATALOG_NOT_READY",
-                    "Production vegetation allowlist is intentionally empty until exact resources "
-                    "can be proven without violating the active-project permission boundary.",
-                ),
-            )
+        try:
+            request = validate_vegetation_input(request, self._catalog).request
+        except PlannerError as error:
+            return underfilled_output(request, error)
         try:
             async with self._lock_manager.shared(self._target_scope):
                 bridge_context = await self._fetch_context()
@@ -406,27 +402,24 @@ class SafeRuntimeService:
         plan_id: str,
         idempotency_key: UUID,
     ) -> VegetationApplyOutput:
-        operation_id = str(idempotency_key)
+        validated = VegetationApplyInput(plan_id=plan_id, idempotency_key=str(idempotency_key))
+        operation_id = validated.idempotency_key
         if not self._catalog.production_ready:
-            return VegetationApplyOutput(
-                ok=False,
-                plan_id=plan_id,
-                operation_id=operation_id,
-                state="PRE_SEND_FAILED",
-                error=_tool_error(
-                    "CATALOG_NOT_READY",
-                    "Apply is fail-closed while the production catalog is unverified.",
-                ),
+            return self._apply_error_output(
+                plan_id,
+                operation_id,
+                "CATALOG_NOT_READY",
+                "Apply is fail-closed while the production catalog is unverified.",
             )
         try:
             result = await self._coordinator.apply(plan_id, operation_id)
         except CoordinatorError as error:
-            return VegetationApplyOutput(
-                ok=False,
-                plan_id=plan_id,
-                operation_id=operation_id,
-                state="PRE_SEND_FAILED",
-                error=_tool_error(error.code.value, str(error)),
+            return self._apply_error_output(
+                plan_id,
+                operation_id,
+                error.code.value,
+                str(error),
+                blocking_operation=error.blocking_operation,
             )
         error_info = None
         if not result.ok:
@@ -448,6 +441,69 @@ class SafeRuntimeService:
             created_count=result.created_count,
             reconciled=result.reconciled,
             error=error_info,
+        )
+
+    def _apply_error_output(
+        self,
+        plan_id: str,
+        operation_id: str,
+        code: str,
+        message: str,
+        *,
+        blocking_operation: OperationRecord | None = None,
+    ) -> VegetationApplyOutput:
+        """Preserve durable outcomes even when this invocation fails before send.
+
+        Top-level IDs always describe the requested binding. A different
+        existing binding is reported only in details; its uncertainty must not
+        disappear behind a pre-send failure of the conflicting invocation.
+        """
+
+        state: OperationStateName = "PRE_SEND_FAILED"
+        unknown = code == CoordinatorErrorCode.UNKNOWN_OUTCOME.value
+        details: dict[str, str | int | float | bool | None] = {
+            "state_subject": "requested_invocation",
+        }
+        try:
+            existing = blocking_operation or self._ledger.get_operation_for_plan(plan_id)
+            if existing is None:
+                try:
+                    existing = self._ledger.get_operation(operation_id)
+                except OperationNotFoundError:
+                    existing = None
+            if existing is not None:
+                same_binding = existing.plan_id == plan_id and existing.operation_id == operation_id
+                details.update(
+                    existing_plan_id=existing.plan_id,
+                    existing_operation_id=existing.operation_id,
+                    existing_state=existing.state.value,
+                )
+                if same_binding:
+                    state = existing.state.value
+                    details["state_subject"] = "requested_operation"
+                unknown = unknown or existing.state in {
+                    OperationState.SENDING,
+                    OperationState.UNKNOWN,
+                    OperationState.ROLLBACK_FAILED,
+                }
+        except (LedgerError, sqlite3.Error, OSError) as error:
+            # Failure to read durable evidence is never proof that no previous
+            # send occurred. Preserve IDs and report conservative uncertainty.
+            state = "UNKNOWN"
+            unknown = True
+            details["state_subject"] = "ledger_unavailable"
+            details["ledger_error"] = str(error)[:512]
+        return VegetationApplyOutput(
+            ok=False,
+            plan_id=plan_id,
+            operation_id=operation_id,
+            state=state,
+            error=ToolErrorInfo(
+                code=code,
+                message=message[:MAX_ERROR_MESSAGE_CHARS],
+                unknown_outcome=unknown,
+                details=details,
+            ),
         )
 
     async def _fetch_context(self) -> BridgeContextResponse:

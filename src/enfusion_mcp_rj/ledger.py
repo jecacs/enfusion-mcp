@@ -27,10 +27,11 @@ from pathlib import Path
 from typing import Final
 from uuid import RFC_4122, UUID
 
-SCHEMA_VERSION: Final = 1
+SCHEMA_VERSION: Final = 2
 DATABASE_FILENAME: Final = "operations.sqlite3"
 MAX_PLAN_JSON_BYTES: Final = 2 * 1024 * 1024
 MAX_DETAIL_LENGTH: Final = 4096
+MAX_TARGET_ENDPOINT_LENGTH: Final = 1024
 _PLAN_ID_RE: Final = re.compile(r"^[0-9a-f]{64}$")
 _PROC_START_TICKS_INDEX: Final = 19
 _UNIX_EPOCH: Final = datetime(1970, 1, 1, tzinfo=UTC)
@@ -72,6 +73,17 @@ class OperationConflictError(LedgerError):
     """An idempotency key or plan already has an incompatible binding."""
 
 
+class TargetOperationConflictError(OperationConflictError):
+    """Another unresolved operation prevents a new mutation on this endpoint."""
+
+    def __init__(self, operation: OperationRecord) -> None:
+        super().__init__(
+            f"Workbench target has unresolved operation {operation.operation_id} "
+            f"in state {operation.state}; reconcile it before a new create"
+        )
+        self.operation = operation
+
+
 class InvalidOperationTransitionError(LedgerError):
     """The requested operation-state transition is not permitted."""
 
@@ -89,6 +101,17 @@ class OperationState(StrEnum):
     ROLLBACK_FAILED = "ROLLBACK_FAILED"
     UNDONE = "UNDONE"
     PRE_SEND_FAILED = "PRE_SEND_FAILED"
+
+
+_UNRESOLVED_TARGET_STATES: Final = frozenset(
+    {
+        OperationState.SENDING,
+        OperationState.UNKNOWN,
+        OperationState.PARTIAL,
+        OperationState.ROLLBACK_FAILED,
+        OperationState.ENTITY_CONFLICT,
+    }
+)
 
 
 _ALLOWED_TRANSITIONS: Final[dict[OperationState, frozenset[OperationState]]] = {
@@ -497,7 +520,7 @@ class Ledger:
             ).fetchone()
         return None if row is None else _operation_from_row(row)
 
-    def transition_operation(
+    def transition_operation(  # noqa: PLR0913 - explicit atomic claim parameters
         self,
         operation_id: str,
         to_state: OperationState,
@@ -505,16 +528,21 @@ class Ledger:
         expected_state: OperationState | None = None,
         detail: str | None = None,
         now: datetime | None = None,
+        target_endpoint: str | None = None,
     ) -> OperationRecord:
         """Apply a validated state transition and mirror it onto the plan."""
 
         canonical_id = validate_idempotency_key(operation_id)
         if detail is not None and len(detail) > MAX_DETAIL_LENGTH:
             raise ValueError("operation detail is too long")
-        instant = datetime.now(tz=UTC) if now is None else now
-        now_us = _datetime_to_microseconds(instant, field="now")
+        if target_endpoint is not None:
+            _validate_target_endpoint(target_endpoint)
 
         with self._transaction() as connection:
+            # Busy-lock waiting can outlive a plan's TTL. Sample wall time
+            # only after SQLite grants this write transaction.
+            instant = datetime.now(tz=UTC) if now is None else now
+            now_us = _datetime_to_microseconds(instant, field="now")
             row = connection.execute(
                 "SELECT * FROM operations WHERE operation_id = ?", (canonical_id,)
             ).fetchone()
@@ -531,6 +559,22 @@ class Ledger:
                 raise InvalidOperationTransitionError(
                     f"transition {current.state.value} -> {to_state.value} is not allowed"
                 )
+
+            if to_state is OperationState.SENDING:
+                # The final send claim checks expiry and unresolved peer
+                # operations in this same write transaction, after preflight.
+                plan_row = connection.execute(
+                    "SELECT expires_at_us FROM plans WHERE plan_id = ?", (current.plan_id,)
+                ).fetchone()
+                if plan_row is None or int(plan_row["expires_at_us"]) <= now_us:
+                    raise PlanExpiredError(f"plan {current.plan_id} has expired")
+                self._assert_sendable(connection, canonical_id, target_endpoint)
+                if target_endpoint is not None:
+                    connection.execute(
+                        "INSERT OR IGNORE INTO operation_targets(operation_id, endpoint) "
+                        "VALUES (?, ?)",
+                        (canonical_id, target_endpoint),
+                    )
 
             # Preserve SQLite's monotonic audit-time invariant if the wall
             # clock is adjusted backwards between state transitions.
@@ -577,6 +621,56 @@ class Ledger:
             if updated is None:  # pragma: no cover - SQLite contract guard
                 raise LedgerError("updated operation could not be read back")
             return _operation_from_row(updated)
+
+    def assert_target_binding(self, operation_id: str, target_endpoint: str) -> None:
+        """Reject reconciliation against an endpoint different from the send target."""
+
+        canonical_id = validate_idempotency_key(operation_id)
+        _validate_target_endpoint(target_endpoint)
+        with self._connection() as connection:
+            self._assert_binding(connection, canonical_id, target_endpoint)
+
+    def assert_target_sendable(self, operation_id: str, target_endpoint: str) -> None:
+        """Reject unresolved peers before network I/O; send claim checks again atomically."""
+
+        canonical_id = validate_idempotency_key(operation_id)
+        _validate_target_endpoint(target_endpoint)
+        with self._connection() as connection:
+            self._assert_sendable(connection, canonical_id, target_endpoint)
+
+    @staticmethod
+    def _assert_binding(
+        connection: sqlite3.Connection, operation_id: str, target_endpoint: str | None
+    ) -> None:
+        row = connection.execute(
+            "SELECT endpoint FROM operation_targets WHERE operation_id = ?", (operation_id,)
+        ).fetchone()
+        if row is not None and str(row["endpoint"]) != target_endpoint:
+            raise OperationConflictError("operation is bound to a different Workbench endpoint")
+
+    @classmethod
+    def _assert_sendable(
+        cls, connection: sqlite3.Connection, operation_id: str, target_endpoint: str | None
+    ) -> None:
+        cls._assert_binding(connection, operation_id, target_endpoint)
+        row = connection.execute(
+            """
+            SELECT operations.* FROM operations
+            LEFT JOIN operation_targets USING(operation_id)
+            WHERE operations.operation_id != ? AND operations.state IN (?, ?, ?, ?, ?)
+              AND (? IS NULL OR operation_targets.endpoint IS NULL
+                   OR operation_targets.endpoint = ?)
+            LIMIT 1
+            """,
+            (
+                operation_id,
+                *(state.value for state in _UNRESOLVED_TARGET_STATES),
+                target_endpoint,
+                target_endpoint,
+            ),
+        ).fetchone()
+        if row is not None:
+            raise TargetOperationConflictError(_operation_from_row(row))
 
     def recover_orphaned_sending(self) -> int:
         """Conservatively turn dead-process ``SENDING`` rows into ``UNKNOWN``.
@@ -729,6 +823,21 @@ class Ledger:
                         )
                     self._create_schema(connection, states=states)
                     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                elif version == 1:
+                    legacy_metadata = connection.execute(
+                        "SELECT version FROM schema_metadata WHERE singleton = 1"
+                    ).fetchone()
+                    if legacy_metadata is None or int(legacy_metadata[0]) != 1:
+                        raise SchemaVersionError("legacy ledger schema metadata is inconsistent")
+                    # V1 never stored endpoint identity. Do not infer it from
+                    # current config: unbound unresolved rows conservatively
+                    # block every endpoint until read-only reconciliation.
+                    self._create_target_schema(connection)
+                    connection.execute(
+                        "UPDATE schema_metadata SET version = ? WHERE singleton = 1",
+                        (SCHEMA_VERSION,),
+                    )
+                    connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
                 elif version != SCHEMA_VERSION:
                     raise SchemaVersionError(
                         f"ledger schema {version} is unsupported; expected {SCHEMA_VERSION}"
@@ -828,11 +937,56 @@ class Ledger:
             END
             """
         )
+        Ledger._create_target_schema(connection)
+
+    @staticmethod
+    def _create_target_schema(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """
+            CREATE TABLE operation_targets (
+                operation_id TEXT PRIMARY KEY REFERENCES operations(operation_id)
+                    ON DELETE RESTRICT,
+                endpoint TEXT NOT NULL CHECK(length(endpoint) BETWEEN 1 AND 1024)
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX operation_targets_endpoint_idx ON operation_targets(endpoint)"
+        )
+        connection.execute(
+            """
+            CREATE TRIGGER operation_target_immutable
+            BEFORE UPDATE ON operation_targets
+            BEGIN
+                SELECT RAISE(ABORT, 'operation endpoint cannot be updated');
+            END
+            """
+        )
+        connection.execute(
+            """
+            CREATE TRIGGER operation_target_not_deleted
+            BEFORE DELETE ON operation_targets
+            BEGIN
+                SELECT RAISE(ABORT, 'operation endpoint cannot be deleted');
+            END
+            """
+        )
 
 
 def _validate_plan_id(plan_id: str) -> None:
     if not isinstance(plan_id, str) or _PLAN_ID_RE.fullmatch(plan_id) is None:
         raise PlanValidationError("plan_id must be exactly 64 lowercase hexadecimal characters")
+
+
+def _validate_target_endpoint(value: str) -> None:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > MAX_TARGET_ENDPOINT_LENGTH
+        or value.strip() != value
+        or "\x00" in value
+    ):
+        raise OperationConflictError("target endpoint must be bounded, non-empty trusted text")
 
 
 def _reject_json_constant(value: str) -> object:

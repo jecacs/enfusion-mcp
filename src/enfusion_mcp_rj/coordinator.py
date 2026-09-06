@@ -10,6 +10,7 @@ is durably marked ``SENDING`` before the bridge is called exactly once.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
 import re
@@ -25,17 +26,22 @@ from enfusion_mcp_rj.bridge_models import (
     BRIDGE_PROTOCOL_VERSION,
     MAX_PLACEMENTS,
     BridgeContextResponse,
+    BridgeVegetationApplyRequest,
+    BridgeVegetationApplyResponse,
 )
 from enfusion_mcp_rj.ledger import (
+    MAX_DETAIL_LENGTH,
     InvalidOperationTransitionError,
     Ledger,
     OperationConflictError,
+    OperationNotFoundError,
     OperationRecord,
     OperationState,
     PlanExpiredError,
     PlanNotFoundError,
     PlanRecord,
     PlanValidationError,
+    TargetOperationConflictError,
     validate_idempotency_key,
 )
 from enfusion_mcp_rj.locking import LockError, TargetLockManager, TargetScope
@@ -62,10 +68,9 @@ MAX_SLOPE_DEG: Final = 90.0
 MAX_SCALE: Final = 10.0
 MAX_TERRAIN_Y_EPSILON: Final = 0.05
 FULL_ROTATION_DEG: Final = 360.0
-MAX_ERROR_CODE_LENGTH: Final = 64
+MAX_DIAGNOSTIC_CHARS: Final = 2048
 MAX_ABS_COORDINATE_UNITS: Final = round(MAX_ABS_COORDINATE_M * COORDINATE_SCALE)
 _HASH_RE: Final = re.compile(r"^[0-9a-f]{64}$")
-_ERROR_CODE_RE: Final = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _ALLOWED_LAYERS: Final = frozenset({"MCP_Preview", "MCP_Vegetation"})
 
 
@@ -89,14 +94,22 @@ class CoordinatorErrorCode(StrEnum):
     STATE_CONFLICT = "STATE_CONFLICT"
     CONTEXT_PREFLIGHT_FAILED = "CONTEXT_PREFLIGHT_FAILED"
     STALE_CONTEXT = "STALE_CONTEXT"
+    TARGET_OPERATION_UNRESOLVED = "TARGET_OPERATION_UNRESOLVED"
 
 
 class CoordinatorError(RuntimeError):
     """A typed failure before an operation result can be safely returned."""
 
-    def __init__(self, code: CoordinatorErrorCode, message: str) -> None:
-        super().__init__(message)
+    def __init__(
+        self,
+        code: CoordinatorErrorCode,
+        message: str,
+        *,
+        blocking_operation: OperationRecord | None = None,
+    ) -> None:
+        super().__init__(_bounded_diagnostic(message, limit=MAX_DIAGNOSTIC_CHARS))
         self.code = code
+        self.blocking_operation = blocking_operation
 
 
 class BridgeProtocolError(CoordinatorError):
@@ -208,7 +221,7 @@ class _TrustedPlan:
     def envelope(self, *, mode: str, operation_id: str) -> dict[str, JsonValue]:
         if mode not in {"create", "reconcile"}:  # trusted-code assertion
             raise ValueError(f"unsupported vegetation operation mode: {mode}")
-        return {
+        wire: dict[str, JsonValue] = {
             "mode": mode,
             "planId": self.plan_id,
             "operationId": operation_id,
@@ -233,6 +246,9 @@ class _TrustedPlan:
             "yaw": [placement.yaw for placement in self.placements],
             "scale": [placement.scale for placement in self.placements],
         }
+        return BridgeVegetationApplyRequest.model_validate(wire).model_dump(
+            mode="json", by_alias=True
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,6 +337,16 @@ class ApplyCoordinator:
                 CoordinatorErrorCode.LOCK_FAILED,
                 f"could not acquire exclusive Workbench target lock: {exc}",
             ) from exc
+        except TargetOperationConflictError as exc:
+            raise CoordinatorError(
+                CoordinatorErrorCode.TARGET_OPERATION_UNRESOLVED,
+                str(exc),
+                blocking_operation=exc.operation,
+            ) from exc
+        except OperationConflictError as exc:
+            raise CoordinatorError(CoordinatorErrorCode.OPERATION_CONFLICT, str(exc)) from exc
+        except PlanExpiredError as exc:
+            raise CoordinatorError(CoordinatorErrorCode.PLAN_EXPIRED, str(exc)) from exc
 
     async def reconcile(self, plan_id: str, idempotency_key: str) -> ApplyResult:
         """Explicitly reconcile an existing binding without ever creating entities."""
@@ -338,24 +364,40 @@ class ApplyCoordinator:
                         "plan has no operation binding to reconcile",
                     )
                 _require_same_binding(operation, key)
+                self._ledger.assert_target_binding(key, self._target_scope.endpoint_canonical)
                 return await self._reconcile_locked(trusted, operation)
         except LockError as exc:
             raise CoordinatorError(
                 CoordinatorErrorCode.LOCK_FAILED,
                 f"could not acquire exclusive Workbench target lock: {exc}",
             ) from exc
+        except OperationConflictError as exc:
+            raise CoordinatorError(CoordinatorErrorCode.OPERATION_CONFLICT, str(exc)) from exc
 
     async def _apply_locked(self, plan_id: str, key: str) -> ApplyResult:
         plan, trusted = self._load_plan(plan_id)
+        try:
+            bound_key = self._ledger.get_operation(key)
+        except OperationNotFoundError:
+            pass
+        else:
+            if bound_key.plan_id != plan.plan_id:
+                raise CoordinatorError(
+                    CoordinatorErrorCode.OPERATION_CONFLICT,
+                    "idempotency key is already bound to another plan",
+                    blocking_operation=bound_key,
+                )
         existing = self._ledger.get_operation_for_plan(plan.plan_id)
         if existing is not None:
             _require_same_binding(existing, key)
+            self._ledger.assert_target_binding(key, self._target_scope.endpoint_canonical)
             if existing.state in {OperationState.PLANNED, OperationState.PRE_SEND_FAILED}:
                 if plan.is_expired():
                     raise CoordinatorError(
                         CoordinatorErrorCode.PLAN_EXPIRED,
                         f"plan {plan.plan_id} has expired",
                     )
+                self._ledger.assert_target_sendable(key, self._target_scope.endpoint_canonical)
                 await self._preflight_new_plan(trusted)
                 return await self._send_create(trusted, existing)
             return await self._reconcile_locked(trusted, existing)
@@ -368,6 +410,7 @@ class ApplyCoordinator:
                 CoordinatorErrorCode.PLAN_EXPIRED,
                 f"plan {plan.plan_id} has expired",
             )
+        self._ledger.assert_target_sendable(key, self._target_scope.endpoint_canonical)
         await self._preflight_new_plan(trusted)
 
         try:
@@ -389,18 +432,20 @@ class ApplyCoordinator:
     ) -> ApplyResult:
         """Send once after a new or proven-pre-send-failed operation claim."""
 
+        # Validate the real staged-wire model before recording the send claim.
+        envelope = trusted.envelope(mode="create", operation_id=operation.operation_id)
         # This compare-and-transition is the durable single-sender claim.
         try:
             operation = self._ledger.transition_operation(
                 operation.operation_id,
                 OperationState.SENDING,
                 expected_state=operation.state,
+                target_endpoint=self._target_scope.endpoint_canonical,
             )
         except InvalidOperationTransitionError:
             operation = self._ledger.get_operation(operation.operation_id)
             return await self._reconcile_locked(trusted, operation)
 
-        envelope = trusted.envelope(mode="create", operation_id=operation.operation_id)
         try:
             raw_report = await self._bridge.call_mutation(VEGETATION_ENDPOINT, envelope)
         except NetApiError as exc:
@@ -409,7 +454,9 @@ class ApplyCoordinator:
                     operation.operation_id,
                     OperationState.PRE_SEND_FAILED,
                     expected_state=OperationState.SENDING,
-                    detail=f"mutation transport failed before send: {exc}",
+                    detail=_bounded_diagnostic(
+                        f"mutation transport failed before send: {exc}", limit=MAX_DETAIL_LENGTH
+                    ),
                 )
                 return _failed_result(
                     failed,
@@ -627,7 +674,7 @@ class ApplyCoordinator:
             return self._ledger.transition_operation(
                 current.operation_id,
                 OperationState.UNKNOWN,
-                detail=detail,
+                detail=_bounded_diagnostic(detail, limit=MAX_DETAIL_LENGTH),
             )
         return current
 
@@ -813,18 +860,23 @@ class ApplyCoordinator:
             current = self._ledger.transition_operation(
                 current.operation_id, OperationState.UNKNOWN, detail=report.detail
             )
-        if current.state in {OperationState.UNKNOWN, OperationState.APPLIED}:
+        if current.state is OperationState.APPLIED:
             current = self._ledger.transition_operation(
                 current.operation_id, OperationState.UNDONE, detail=report.detail
             )
-        elif current.state in {OperationState.PARTIAL, OperationState.ROLLBACK_FAILED}:
-            current = self._ledger.transition_operation(
-                current.operation_id,
-                OperationState.ROLLBACK_VERIFIED,
-                detail=report.detail,
+        if current.state is OperationState.UNKNOWN:
+            code = CoordinatorErrorCode.UNKNOWN_OUTCOME
+            message = (
+                "no deterministic entities were observed, but the original mutation may still "
+                "be executing or may have been undone; the target remains blocked"
             )
-
-        if current.state is OperationState.PRE_SEND_FAILED:
+        elif current.state is OperationState.PARTIAL:
+            code = CoordinatorErrorCode.PARTIAL_OPERATION
+            message = "the partial batch is absent, but completion/rollback remains unproved"
+        elif current.state is OperationState.ROLLBACK_FAILED:
+            code = CoordinatorErrorCode.ROLLBACK_FAILED
+            message = "the batch is absent, but the failed rollback/action remains unproved"
+        elif current.state is OperationState.PRE_SEND_FAILED:
             code = CoordinatorErrorCode.PRE_SEND_FAILED
             message = report.detail or "no mutation was sent and no deterministic entities exist"
         elif current.state is OperationState.ROLLBACK_VERIFIED:
@@ -843,6 +895,16 @@ class ApplyCoordinator:
             reconciled=True,
             classification=report.classification,
         )
+
+
+def _bounded_diagnostic(message: str, *, limit: int) -> str:
+    """Keep untrusted diagnostics from preventing a durable safety transition."""
+
+    if len(message) <= limit:
+        return message
+    digest = hashlib.sha256(message.encode("utf-8", errors="replace")).hexdigest()
+    suffix = f" [truncated sha256={digest}]"
+    return message[: limit - len(suffix)] + suffix
 
 
 def _trusted_plan_from_record(  # noqa: PLR0912, PLR0915 - explicit schema checks
@@ -1139,6 +1201,8 @@ def _parse_mutation_report(  # noqa: PLR0913 - identity fields stay explicit
         raise BridgeProtocolError("REJECTED create must prove that no entity was affected")
     if report.rollback_verified != (report.state is BridgeResponseState.ROLLBACK_VERIFIED):
         raise BridgeProtocolError("rollbackVerified is inconsistent with create state")
+    if report.state is BridgeResponseState.ROLLBACK_VERIFIED and report.matching_count != 0:
+        raise BridgeProtocolError("ROLLBACK_VERIFIED must prove zero remaining matching entities")
     return _MutationReport(
         state=report.state,
         error_code=report.error_code,
@@ -1199,7 +1263,7 @@ def _parse_reconciliation_report(  # noqa: PLR0913 - identity fields stay explic
     )
 
 
-def _parse_unified_report(  # noqa: PLR0912, PLR0913, PLR0915 - explicit contract checks
+def _parse_unified_report(  # noqa: PLR0913 - explicit operation identity checks
     value: JsonValue,
     *,
     mode: str,
@@ -1209,116 +1273,44 @@ def _parse_unified_report(  # noqa: PLR0912, PLR0913, PLR0915 - explicit contrac
     expected_bridge_build_id: str,
     expected_catalog_hash: str,
 ) -> _UnifiedBridgeReport:
-    fields = {
-        "status",
-        "errorCode",
-        "message",
-        "bridgeProtocolVersion",
-        "bridgeBuildId",
-        "catalogHash",
-        "planId",
-        "operationId",
-        "mode",
-        "state",
-        "expectedCount",
-        "matchingCount",
-        "createdCount",
-        "rollbackVerified",
-        "entityNames",
-    }
     try:
-        root = _mapping(value, field=f"{mode} response")
-    except (TypeError, ValueError) as exc:
+        report = BridgeVegetationApplyResponse.model_validate(value)
+    except ValidationError as exc:
         raise BridgeProtocolError(str(exc)) from exc
-    keys = set(root)
-    missing = fields - keys
-    unexpected = keys - fields
-    if missing:
-        raise BridgeProtocolError(f"{mode} response is missing fields: {sorted(missing)}")
-    if unexpected:
-        raise BridgeProtocolError(f"{mode} response has unexpected fields: {sorted(unexpected)}")
-    try:
-        status = _text(root.get("status"), field="status", maximum=8)
-        error_code_value = root.get("errorCode")
-        if not isinstance(error_code_value, str) or len(error_code_value) > MAX_ERROR_CODE_LENGTH:
-            raise ValueError("errorCode must be a string of at most 64 characters")
-        if error_code_value and _ERROR_CODE_RE.fullmatch(error_code_value) is None:
-            raise ValueError("non-empty errorCode must be uppercase identifier text")
-        message = _text(root.get("message"), field="message", maximum=2048)
-        protocol_version = _text(
-            root.get("bridgeProtocolVersion"),
-            field="bridgeProtocolVersion",
-            maximum=64,
-        )
-        bridge_build_id = _text(
-            root.get("bridgeBuildId"),
-            field="bridgeBuildId",
-            maximum=128,
-        )
-        catalog_hash = _text(root.get("catalogHash"), field="catalogHash", maximum=64)
-        if _HASH_RE.fullmatch(catalog_hash) is None:
-            raise ValueError("catalogHash must be 64 lowercase hexadecimal characters")
-        response_plan = _text(root.get("planId"), field="planId", maximum=64)
-        response_operation = _text(root.get("operationId"), field="operationId", maximum=36)
-        response_mode = _text(root.get("mode"), field="mode", maximum=16)
-        state = BridgeResponseState(_text(root.get("state"), field="state", maximum=32))
-        response_expected = _response_count(root.get("expectedCount"), field="expectedCount")
-        matching_count = _response_count(root.get("matchingCount"), field="matchingCount")
-        created_count = _response_count(root.get("createdCount"), field="createdCount")
-        rollback_verified_value = root.get("rollbackVerified")
-        if not isinstance(rollback_verified_value, bool):
-            raise TypeError("rollbackVerified must be a boolean")
-        entity_names_value = root.get("entityNames")
-        if not isinstance(entity_names_value, list):
-            raise TypeError("entityNames must be an array")
-        entity_names = tuple(
-            _text(name, field="entityNames item", maximum=128) for name in entity_names_value
-        )
-    except (TypeError, ValueError) as exc:
-        raise BridgeProtocolError(str(exc)) from exc
-    if status not in {"ok", "error"}:
-        raise BridgeProtocolError("status must be 'ok' or 'error'")
-    if status == "ok" and error_code_value:
-        raise BridgeProtocolError("successful response must have an empty errorCode")
-    if status == "error" and not error_code_value:
-        raise BridgeProtocolError("error response must have a non-empty errorCode")
-    if protocol_version != BRIDGE_PROTOCOL_VERSION:
+    if report.bridge_protocol_version != BRIDGE_PROTOCOL_VERSION:
         raise BridgeProtocolError("bridgeProtocolVersion is incompatible")
-    if bridge_build_id != expected_bridge_build_id or bridge_build_id != BRIDGE_BUILD_ID:
+    if (
+        report.bridge_build_id != expected_bridge_build_id
+        or report.bridge_build_id != BRIDGE_BUILD_ID
+    ):
         raise BridgeProtocolError("bridgeBuildId is incompatible")
-    if catalog_hash != expected_catalog_hash:
+    if report.catalog_hash != expected_catalog_hash:
         raise BridgeProtocolError("catalogHash differs from the immutable plan")
-    if response_plan != plan_id or response_operation != operation_id:
+    if report.plan_id != plan_id or report.operation_id != operation_id:
         raise BridgeProtocolError("bridge response operation/plan binding does not match request")
-    if response_mode != mode:
+    if report.mode != mode:
         raise BridgeProtocolError("bridge response mode does not match request")
-    if response_expected != expected_count:
+    if report.expected_count != expected_count:
         raise BridgeProtocolError("bridge expectedCount differs from immutable plan")
-    if matching_count > expected_count or created_count > expected_count:
+    if report.matching_count > expected_count or report.created_count > expected_count:
         raise BridgeProtocolError("bridge entity counts exceed immutable plan count")
-    if len(entity_names) != created_count:
+    entity_names = tuple(report.entity_names)
+    if len(entity_names) != report.created_count:
         raise BridgeProtocolError("entityNames cardinality differs from createdCount")
     expected_names = tuple(f"RJMCP_{plan_id}_{index}" for index in range(expected_count))
     if entity_names and entity_names != expected_names[: len(entity_names)]:
         raise BridgeProtocolError("bridge entityNames do not match deterministic plan names")
     return _UnifiedBridgeReport(
-        status=status,
-        error_code=error_code_value,
-        message=message,
-        state=state,
-        expected_count=response_expected,
-        matching_count=matching_count,
-        created_count=created_count,
-        rollback_verified=rollback_verified_value,
+        status=report.status,
+        error_code=report.error_code,
+        message=report.message,
+        state=BridgeResponseState(report.state),
+        expected_count=report.expected_count,
+        matching_count=report.matching_count,
+        created_count=report.created_count,
+        rollback_verified=report.rollback_verified,
         entity_names=entity_names,
     )
-
-
-def _response_count(value: object, *, field: str) -> int:
-    try:
-        return _integer(value, field=field, minimum=0, maximum=MAX_PLACEMENTS)
-    except (TypeError, ValueError) as exc:
-        raise BridgeProtocolError(str(exc)) from exc
 
 
 def _mapping(value: object, *, field: str) -> Mapping[str, object]:

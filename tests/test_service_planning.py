@@ -10,6 +10,7 @@ import pytest
 from enfusion_mcp_rj.bridge_models import BRIDGE_BUILD_ID, BRIDGE_PROTOCOL_VERSION
 from enfusion_mcp_rj.catalog import VegetationCatalog
 from enfusion_mcp_rj.config import ServerConfig
+from enfusion_mcp_rj.coordinator import CoordinatorError, CoordinatorErrorCode
 from enfusion_mcp_rj.ledger import Ledger, OperationState
 from enfusion_mcp_rj.locking import TargetLockManager, TargetScope
 from enfusion_mcp_rj.models import CatalogEntry, PaletteItem, VegetationPlanInput
@@ -60,6 +61,7 @@ class PlanningNetClient:
         self.terrain_calls = 0
         self.last_batch_size = 0
         self.context_error_code = ""
+        self.has_terrain = True
 
     @property
     def workbench_address(self) -> tuple[str, int]:
@@ -122,7 +124,7 @@ class PlanningNetClient:
                         "normalX": 0.0,
                         "normalY": 1.0,
                         "normalZ": 0.0,
-                        "hasTerrain": True,
+                        "hasTerrain": self.has_terrain,
                     }
                 )
             return {
@@ -357,6 +359,102 @@ async def test_invalid_selection_stops_before_terrain_and_persistence(tmp_path: 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("updates", "error_code"),
+    [
+        (
+            {"palette": [{"prefab": "{0000000000000099}NotAllowlisted.et", "weight": 1.0}]},
+            "PREFAB_NOT_ALLOWED",
+        ),
+        ({"palette": [{"prefab": PREFAB, "weight": 1e-12}]}, "INVALID_PALETTE_WEIGHT"),
+        ({"min_spacing_m": 1e-12}, "INVALID_SPACING"),
+        ({"scale_min": 1e-12, "scale_max": 1e-12}, "INVALID_SCALE"),
+        ({"max_slope_deg": 89.999999999}, "INVALID_SLOPE"),
+    ],
+)
+async def test_planner_semantic_input_errors_never_request_context(
+    tmp_path: Path, updates: dict[str, object], error_code: str
+) -> None:
+    catalog = _catalog()
+    client = PlanningNetClient(catalog.catalog_hash)
+    service, ledger = _service(tmp_path, client, catalog)
+    fields = _request().model_dump()
+    fields.update(updates)
+    request = VegetationPlanInput.model_validate(fields)
+
+    result = await service.vegetation_plan(request)
+
+    assert not result.ok
+    assert result.error is not None and result.error.code == error_code
+    assert client.context_calls == client.terrain_calls == 0
+    assert ledger.count_plans() == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"count": 101},
+        {"seed": -1},
+        {"palette": []},
+        {"scale_min": float("nan")},
+        {"target_layer": ["MCP_Preview"]},
+    ],
+)
+async def test_direct_service_revalidates_unchecked_model_copies(
+    tmp_path: Path, updates: dict[str, object]
+) -> None:
+    catalog = _catalog()
+    client = PlanningNetClient(catalog.catalog_hash)
+    service, ledger = _service(tmp_path, client, catalog)
+    unchecked = _request().model_copy(update=updates)
+
+    result = await service.vegetation_plan(unchecked)
+
+    assert not result.ok
+    assert result.error is not None and result.error.code == "INVALID_REQUEST"
+    assert client.context_calls == client.terrain_calls == 0
+    assert ledger.count_plans() == 0
+
+
+@pytest.mark.asyncio
+async def test_direct_service_revalidates_mutated_nested_palette(tmp_path: Path) -> None:
+    catalog = _catalog()
+    client = PlanningNetClient(catalog.catalog_hash)
+    service, ledger = _service(tmp_path, client, catalog)
+    request = _request()
+    request.palette.append(request.palette[0])
+
+    result = await service.vegetation_plan(request)
+
+    assert not result.ok
+    assert result.error is not None and result.error.code == "INVALID_REQUEST"
+    assert client.context_calls == client.terrain_calls == 0
+    assert ledger.count_plans() == 0
+
+
+@pytest.mark.asyncio
+async def test_zero_placements_preserves_underfilled_stats_without_storing_a_plan(
+    tmp_path: Path,
+) -> None:
+    catalog = _catalog()
+    client = PlanningNetClient(catalog.catalog_hash)
+    client.has_terrain = False
+    service, ledger = _service(tmp_path, client, catalog)
+
+    result = await service.vegetation_plan(_request())
+
+    assert not result.ok
+    assert result.plan_id is None and result.placements == []
+    assert result.error is not None and result.error.code == "NO_VALID_PLACEMENTS"
+    assert result.warnings == ["UNDERFILLED"]
+    assert result.rejection_stats["no_terrain"] == client.last_batch_size == 64
+    assert result.rejection_stats["accepted"] == 0
+    assert result.rejection_stats["candidate_attempts"] >= 64
+    assert ledger.count_plans() == 0
+
+
+@pytest.mark.asyncio
 async def test_service_apply_is_create_once_then_reconcile_only_and_marks_undo(
     tmp_path: Path,
 ) -> None:
@@ -440,3 +538,109 @@ async def test_service_marks_coordinator_unknown_outcome_in_structured_error(
     assert result.error is not None
     assert result.error.code == "UNKNOWN_OUTCOME"
     assert result.error.unknown_outcome is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("recorded_state", "unknown"),
+    [
+        (OperationState.SENDING, True),
+        (OperationState.UNKNOWN, True),
+        (OperationState.APPLIED, False),
+        (OperationState.ROLLBACK_FAILED, True),
+    ],
+)
+async def test_coordinator_error_preserves_existing_binding_outcome(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    recorded_state: OperationState,
+    unknown: bool,
+) -> None:
+    catalog = _catalog()
+    client = ApplyingNetClient(catalog.catalog_hash)
+    service, ledger = _service(tmp_path, client, catalog)
+    planned = await service.vegetation_plan(_request())
+    assert planned.plan_id is not None
+    key = "00000000-0000-4000-8000-000000000004"
+    operation = ledger.bind_operation(plan_id=planned.plan_id, idempotency_key=key)
+    ledger.transition_operation(operation.operation_id, OperationState.SENDING)
+    if recorded_state is not OperationState.SENDING:
+        ledger.transition_operation(operation.operation_id, recorded_state)
+
+    async def fail_before_result(*_args: object) -> None:
+        raise CoordinatorError(CoordinatorErrorCode.LOCK_FAILED, "injected lock failure")
+
+    monkeypatch.setattr(service._coordinator, "apply", fail_before_result)
+
+    result = await service.vegetation_apply(planned.plan_id, UUID(key))
+
+    assert not result.ok
+    assert result.state == recorded_state.value
+    assert result.plan_id == planned.plan_id and result.operation_id == key
+    assert result.error is not None
+    assert result.error.code == "LOCK_FAILED"
+    assert result.error.unknown_outcome is unknown
+    assert result.error.details["state_subject"] == "requested_operation"
+    assert result.error.details["existing_state"] == recorded_state.value
+    assert client.mutation_calls == client.reconcile_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_new_key_conflict_reports_blocked_unknown_operation_without_mixing_ids(
+    tmp_path: Path,
+) -> None:
+    catalog = _catalog()
+    client = ApplyingNetClient(catalog.catalog_hash)
+    service, ledger = _service(tmp_path, client, catalog)
+    planned = await service.vegetation_plan(_request())
+    assert planned.plan_id is not None
+    old_key = "00000000-0000-4000-8000-000000000005"
+    new_key = "00000000-0000-4000-8000-000000000006"
+    operation = ledger.bind_operation(plan_id=planned.plan_id, idempotency_key=old_key)
+    ledger.transition_operation(operation.operation_id, OperationState.SENDING)
+    ledger.transition_operation(operation.operation_id, OperationState.UNKNOWN)
+
+    result = await service.vegetation_apply(planned.plan_id, UUID(new_key))
+
+    assert not result.ok
+    assert result.plan_id == planned.plan_id and result.operation_id == new_key
+    assert result.state == "PRE_SEND_FAILED"
+    assert result.error is not None and result.error.code == "OPERATION_CONFLICT"
+    assert result.error.unknown_outcome is True
+    assert result.error.details == {
+        "state_subject": "requested_invocation",
+        "existing_plan_id": planned.plan_id,
+        "existing_operation_id": old_key,
+        "existing_state": "UNKNOWN",
+    }
+    assert client.mutation_calls == client.reconcile_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_other_plan_unknown_blocker_is_explicit_in_apply_error(tmp_path: Path) -> None:
+    catalog = _catalog()
+    client = ApplyingNetClient(catalog.catalog_hash)
+    service, ledger = _service(tmp_path, client, catalog)
+    first = await service.vegetation_plan(_request(seed=0))
+    second = await service.vegetation_plan(_request(seed=1))
+    assert first.plan_id is not None and second.plan_id is not None
+    old_key = "00000000-0000-4000-8000-000000000007"
+    new_key = "00000000-0000-4000-8000-000000000008"
+    operation = ledger.bind_operation(plan_id=first.plan_id, idempotency_key=old_key)
+    ledger.transition_operation(operation.operation_id, OperationState.SENDING)
+    ledger.transition_operation(operation.operation_id, OperationState.UNKNOWN)
+
+    result = await service.vegetation_apply(second.plan_id, UUID(new_key))
+
+    assert not result.ok
+    assert result.plan_id == second.plan_id and result.operation_id == new_key
+    assert result.state == "PRE_SEND_FAILED"
+    assert result.error is not None and result.error.code == "TARGET_OPERATION_UNRESOLVED"
+    assert result.error.unknown_outcome is True
+    assert result.error.details == {
+        "state_subject": "requested_invocation",
+        "existing_plan_id": first.plan_id,
+        "existing_operation_id": old_key,
+        "existing_state": "UNKNOWN",
+    }
+    assert client.mutation_calls == client.reconcile_calls == 0

@@ -60,7 +60,9 @@ from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from functools import reduce
 from math import gcd
-from typing import Final
+from typing import Final, cast
+
+from pydantic import ValidationError
 
 from enfusion_mcp_rj.bridge_models import BRIDGE_BUILD_ID, BRIDGE_PROTOCOL_VERSION
 from enfusion_mcp_rj.catalog import VegetationCatalog
@@ -142,6 +144,17 @@ class TerrainContractError(PlannerError):
 
 class CatalogValidationError(PlannerError):
     """The requested palette is not an exact subset of the catalog."""
+
+
+class NoValidPlacementsError(PlannerError):
+    """A non-applyable underfilled result retaining every rejection counter."""
+
+    def __init__(self, rejection_stats: dict[str, int]) -> None:
+        super().__init__(
+            "NO_VALID_PLACEMENTS",
+            "Terrain filtering produced no valid vegetation placement; no plan was stored.",
+        )
+        self.rejection_stats = tuple(rejection_stats.items())
 
 
 class PCG32:
@@ -269,6 +282,19 @@ class NormalizedPaletteItem:
 
     prefab: str
     tickets: int
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedVegetationInput:
+    """Context-independent input checks, safe to complete before connecting."""
+
+    request: VegetationPlanInput
+    catalog_hash: str
+    palette: tuple[NormalizedPaletteItem, ...]
+    min_spacing_units: int
+    max_slope_units: int
+    scale_min_units: int
+    scale_max_units: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -486,21 +512,23 @@ def validate_polygon(points_world: Sequence[Vec3]) -> ValidatedPolygon:
     )
 
 
-def prepare_vegetation_plan(  # noqa: PLR0912, PLR0915 - validation order is algorithm contract
-    context: PlanningContext,
+def validate_vegetation_input(
     request: VegetationPlanInput,
     catalog: VegetationCatalog,
-) -> PreparedVegetationPlan:
-    """Validate context/input and deterministically build one terrain batch."""
+) -> ValidatedVegetationInput:
+    """Validate every input independent of Workbench before opening a connection.
 
-    _validate_context(context)
+    Rebuild through Pydantic, including nested palette entries, because direct
+    library callers can use ``model_construct``/``model_copy`` or mutate a list
+    inside a frozen model. Both the service and pure planner use this boundary.
+    """
+
     if type(request) is not VegetationPlanInput:
         raise PlannerError("INVALID_REQUEST", "request must be VegetationPlanInput")
-    if context.active_layer_path != request.target_layer:
-        raise PlannerError(
-            "TARGET_LAYER_NOT_ACTIVE",
-            "requested target layer must be the exact active root-level layer",
-        )
+    try:
+        request = VegetationPlanInput.model_validate(request.model_dump(warnings=False))
+    except (ValidationError, ValueError, TypeError) as error:
+        raise PlannerError("INVALID_REQUEST", f"Invalid vegetation input: {error}") from error
     if type(catalog) is not VegetationCatalog:
         raise CatalogValidationError("INVALID_CATALOG", "catalog must be VegetationCatalog")
     if not catalog.production_ready:
@@ -519,15 +547,7 @@ def prepare_vegetation_plan(  # noqa: PLR0912, PLR0915 - validation order is alg
         raise CatalogValidationError(
             "INVALID_CATALOG", "catalog cannot be serialized as canonical UTF-8"
         ) from error
-    if context.bridge_catalog_hash != catalog_hash:
-        raise CatalogValidationError(
-            "CATALOG_MISMATCH",
-            "Workbench bridge catalog hash does not match the Python exact allowlist",
-        )
-
-    polygon = validate_polygon(context.shape_points_world)
     palette = _normalize_palette(request, catalog)
-    bounds = _quantized_terrain_bounds(context.terrain_bounds)
     min_spacing_units = _wire_units(
         request.min_spacing_m,
         COORDINATE_SCALE,
@@ -557,6 +577,40 @@ def prepare_vegetation_plan(  # noqa: PLR0912, PLR0915 - validation order is alg
     )
     if scale_min_units <= 0 or scale_max_units <= 0:
         raise PlannerError("INVALID_SCALE", "scale range is below V1 precision")
+
+    return ValidatedVegetationInput(
+        request=request,
+        catalog_hash=catalog_hash,
+        palette=palette,
+        min_spacing_units=min_spacing_units,
+        max_slope_units=max_slope_units,
+        scale_min_units=scale_min_units,
+        scale_max_units=scale_max_units,
+    )
+
+
+def prepare_vegetation_plan(
+    context: PlanningContext,
+    request: VegetationPlanInput,
+    catalog: VegetationCatalog,
+) -> PreparedVegetationPlan:
+    """Validate context/input and deterministically build one terrain batch."""
+
+    validated = validate_vegetation_input(request, catalog)
+    request = validated.request
+    _validate_context(context)
+    if context.active_layer_path != request.target_layer:
+        raise PlannerError(
+            "TARGET_LAYER_NOT_ACTIVE",
+            "requested target layer must be the exact active root-level layer",
+        )
+    if context.bridge_catalog_hash != validated.catalog_hash:
+        raise CatalogValidationError(
+            "CATALOG_MISMATCH",
+            "Workbench bridge catalog hash does not match the Python exact allowlist",
+        )
+    polygon = validate_polygon(context.shape_points_world)
+    bounds = _quantized_terrain_bounds(context.terrain_bounds)
 
     rng = PCG32(request.seed)
     stats = _empty_stats()
@@ -648,14 +702,14 @@ def prepare_vegetation_plan(  # noqa: PLR0912, PLR0915 - validation order is alg
         terrain_bounds_units=bounds,
         requested_count=request.count,
         seed=request.seed,
-        min_spacing_units=min_spacing_units,
-        max_slope_units=max_slope_units,
+        min_spacing_units=validated.min_spacing_units,
+        max_slope_units=validated.max_slope_units,
         target_layer=request.target_layer,
-        scale_min_units=scale_min_units,
-        scale_max_units=scale_max_units,
+        scale_min_units=validated.scale_min_units,
+        scale_max_units=validated.scale_max_units,
         catalog_version=catalog.version,
-        catalog_hash=catalog_hash,
-        palette=palette,
+        catalog_hash=validated.catalog_hash,
+        palette=validated.palette,
         candidates=tuple(candidates),
         terrain_queries=terrain_queries,
         generation_stats=tuple(stats.items()),
@@ -752,10 +806,7 @@ def finalize_vegetation_plan(
         stats["accepted"] += 1
 
     if not accepted_units:
-        raise PlannerError(
-            "NO_VALID_PLACEMENTS",
-            "terrain filtering produced no valid vegetation placement",
-        )
+        raise NoValidPlacementsError(stats)
 
     immutable_placements = [
         {
@@ -900,17 +951,27 @@ def yaw_degrees_from_u32(draw: int) -> float:
 
 
 def underfilled_output(
-    request: VegetationPlanInput,
+    request: object,
     error: PlannerError,
 ) -> VegetationPlanOutput:
     """Build a typed failure for service adapters; planning itself raises errors."""
 
+    requested_count = getattr(request, "count", None)
+    target_layer = getattr(request, "target_layer", None)
+    if type(requested_count) is not int or not 1 <= requested_count <= MAX_PLACEMENTS:
+        requested_count = 0
+    if type(target_layer) is not str or target_layer not in {"MCP_Preview", "MCP_Vegetation"}:
+        target_layer = None
     return VegetationPlanOutput(
         ok=False,
         algorithm_version=ALGORITHM_VERSION,
-        requested_count=request.count,
-        target_layer=request.target_layer,
-        error=ToolErrorInfo(code=error.code, message=str(error)),
+        requested_count=requested_count,
+        target_layer=cast("TargetLayer | None", target_layer),
+        rejection_stats=(
+            dict(error.rejection_stats) if isinstance(error, NoValidPlacementsError) else {}
+        ),
+        warnings=["UNDERFILLED"] if isinstance(error, NoValidPlacementsError) else [],
+        error=ToolErrorInfo(code=error.code, message=str(error)[:2048]),
     )
 
 
@@ -1474,6 +1535,7 @@ __all__ = [
     "SCALE_SCALE",
     "TERRAIN_Y_EPSILON_UM",
     "CatalogValidationError",
+    "NoValidPlacementsError",
     "NormalizedPaletteItem",
     "PlannerError",
     "PlanningContext",
@@ -1485,6 +1547,7 @@ __all__ = [
     "TerrainQuery",
     "TerrainSample",
     "ValidatedPolygon",
+    "ValidatedVegetationInput",
     "VegetationPlan",
     "entity_name",
     "finalize_vegetation_plan",
@@ -1492,5 +1555,6 @@ __all__ = [
     "prepare_vegetation_plan",
     "underfilled_output",
     "validate_polygon",
+    "validate_vegetation_input",
     "yaw_degrees_from_u32",
 ]

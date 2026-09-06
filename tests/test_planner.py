@@ -28,6 +28,7 @@ from enfusion_mcp_rj.planner import (
     PLAN_SCHEMA_VERSION,
     TERRAIN_Y_EPSILON_UM,
     CatalogValidationError,
+    NoValidPlacementsError,
     PlannerError,
     PlanningContext,
     PolygonValidationError,
@@ -40,6 +41,7 @@ from enfusion_mcp_rj.planner import (
     plan_vegetation,
     prepare_vegetation_plan,
     validate_polygon,
+    validate_vegetation_input,
     yaw_degrees_from_u32,
 )
 
@@ -712,9 +714,22 @@ def test_no_terrain_returns_typed_failure_instead_of_unapplyable_zero_plan() -> 
         TerrainSample(query.x, query.z, has_terrain=False) for query in prepared.terrain_queries
     )
 
-    with pytest.raises(PlannerError) as captured:
+    with pytest.raises(NoValidPlacementsError) as captured:
         finalize_vegetation_plan(prepared, samples, created_at=CREATED_AT)
     assert captured.value.code == "NO_VALID_PLACEMENTS"
+    stats = dict(captured.value.rejection_stats)
+    assert stats["no_terrain"] == len(samples)
+    assert stats["accepted"] == 0
+    assert stats["candidate_attempts"] >= len(samples)
+
+
+def test_standalone_input_validation_detaches_mutable_palette() -> None:
+    request = _request()
+    validated = validate_vegetation_input(request, _catalog())
+    request.palette.clear()
+
+    assert len(validated.request.palette) == 2
+    assert len(validated.palette) == 2
 
 
 def test_terrain_filter_reasons_are_deterministic_and_ordered() -> None:
@@ -1022,4 +1037,4 @@ def test_canonical_plan_has_a_golden_sha256() -> None:
         created_at=CREATED_AT,
     )
 
-    assert plan.plan_id == "15d047ec9c133315c9ead2e1e4772a088ad69291f9fb71884841afec51b50532"
+    assert plan.plan_id == "57b736e954aace6fc45b532aebd8c78d81bd197db8e3bf751cfc4b87c0a9dc70"
