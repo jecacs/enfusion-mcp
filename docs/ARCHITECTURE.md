@@ -42,16 +42,23 @@ MCP host(s) -> independent Python STDIO process(es)
 PLANNED -> SENDING -> APPLIED -> UNDONE
               |          ^
               +-> UNKNOWN +-- reconcile observes a complete matching batch
-              |      +-> PARTIAL / ENTITY_CONFLICT / UNDONE
+              |      +-> PARTIAL / ENTITY_CONFLICT
               +-> PRE_SEND_FAILED (no request byte sent; same-key retry only)
               +-> ROLLBACK_VERIFIED / ROLLBACK_FAILED
 ```
 
 After request transmission begins, a mutation transport failure becomes
 `UNKNOWN_OUTCOME`. The same idempotency key may reconcile but may not resubmit
-the create batch. A new key for that plan is rejected while an operation is
-unknown. Entity names are a deterministic function of plan hash and placement
+the create batch. An unresolved operation blocks new create requests for every
+plan on the same Workbench endpoint, including after process restart. Absence
+during reconciliation leaves an unknown operation UNKNOWN; only absence after
+confirmed application can establish UNDONE. Entity names are a deterministic
+function of plan hash and placement
 index, which gives reconciliation a stable observation target.
+
+The durable send claim rechecks plan expiry and the endpoint's unresolved
+operations in one SQLite transaction. Diagnostic messages are bounded before
+storage; oversized error text cannot prevent a critical state transition.
 
 The complete project/world/build/catalog scope must equal the validated server
 configuration. Its interprocess lock key is nevertheless derived only from the

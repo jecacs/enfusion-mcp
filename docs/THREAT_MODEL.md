@@ -32,6 +32,10 @@ outside the authentication boundary; another local process could speak to it.
 - SQLite uniqueness, transactions, async locking, and `flock` jointly prevent
   duplicate concurrent application across processes.
 - Mutation is never automatically retried after sending begins.
+- Unresolved operations durably block new create requests for the entire
+  Workbench endpoint; releasing a local/kernel lock cannot clear uncertainty.
+- Expiry is rechecked in the transactional send claim after context preflight.
+- Backend diagnostic size cannot prevent recording UNKNOWN after a send.
 - The Enforce handler revalidates the physical envelope immediately before one
   `BeginEntityAction`/`EndEntityAction`; it never saves the world. Python binds
   the plan/key/ledger state. The handler cannot independently read or attest

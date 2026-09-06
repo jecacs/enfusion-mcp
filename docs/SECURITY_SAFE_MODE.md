@@ -22,6 +22,11 @@ or unsafe configuration prevents the STDIO server from starting.
   a client.
 - Mutations are serialized across cooperating processes and never
   automatically retried after transmission starts.
+- An unresolved operation blocks new create requests for every plan aimed at
+  the same Workbench endpoint, not just attempts to reuse one plan ID.
+- Failed mutation responses preserve typed uncertainty even if their
+  diagnostics are oversized; unrelated pre-send failures do not erase a
+  previously stored operation state.
 - MCP wire output uses stdout exclusively; diagnostics use stderr.
 
 The current production vegetation catalog is intentionally empty because no

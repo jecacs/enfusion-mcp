@@ -5,7 +5,7 @@ Enfusion Workbench. The server runtime is native Python on Linux; Workbench is
 started manually through Steam/Proton and is contacted only through its loopback
 NET API. Version 1 exposes STDIO only.
 
-The project is currently pre-release. Checkpoints A–C provide the strict
+The project is currently pre-release. The implementation provides the strict
 platform and NET API boundary, exact five-tool STDIO surface, deterministic
 planner, durable multi-process coordination, and three staged Enforce handlers.
 The production catalog is intentionally empty and the staged create handler has
@@ -59,8 +59,10 @@ wheel can never copy a handler into an active project.
 See [Architecture](docs/ARCHITECTURE.md), [Threat model](docs/THREAT_MODEL.md),
 [prompt review](docs/PROMPT_REVIEW.md), [reference audit](docs/REFERENCE_AUDIT.md),
 [MCP SDK baseline](docs/MCP_SDK_BASELINE.md), and
-[implementation plan](docs/IMPLEMENTATION_PLAN.md). The completed pre-install
-handoff is recorded in [Checkpoint C evidence](docs/CHECKPOINT_C.md). Runtime details are in
+[implementation plan](docs/IMPLEMENTATION_PLAN.md). The original pre-install
+handoff is recorded in [Checkpoint C evidence](docs/CHECKPOINT_C.md); the
+independent review and corrective revision are recorded in
+[review fixes](docs/REVIEW_FIXES.md). Runtime details are in
 [safe mode](docs/SECURITY_SAFE_MODE.md), [NET API](docs/NET_API_PROTOCOL.md),
 [Linux/Proton](docs/LINUX_PROTON.md), [deterministic vegetation](docs/VEGETATION_MCP.md),
 [staged Enforce bridge](docs/ENFORCE_BRIDGE.md),

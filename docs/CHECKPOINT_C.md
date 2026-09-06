@@ -1,5 +1,11 @@
 # Checkpoint C evidence and stop report
 
+Historical report for the original pre-install artifact at `1a633cb`.
+An independent review subsequently found logic defects and incomplete scale
+support. Its original test results and manifest below are retained as historical
+evidence, not current readiness or installation approval. See
+`REVIEW_FIXES.md` for the corrective revision and current verification limits.
+
 Checkpoint C was completed on 2026-09-06 on branch
 `feature/python-linux-proton-safe-vegetation`. The original repository baseline
 is `9e46b6e51819764acb4e6d08c2838af3895e49ff` (`main`). The implementation

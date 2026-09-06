@@ -36,14 +36,24 @@ no writes elsewhere.
    most one operation/idempotency key and preserve state across restarts.
 
 Planning holds a shared lock across context → one terrain batch → persistence.
-Apply and reconcile hold the exclusive target lock. Multiple reads/plans can
-coexist; no mutation can overlap them or another mutation among cooperating
-processes.
+Apply and reconcile hold the exclusive target lock. Multiple plans can coexist;
+their context/sample/persist sequences exclude cooperating apply requests.
+Standalone status/context reads do not acquire this lock and may observe an
+intermediate editor state. They never mutate the world.
+
+The async lock wait limit covers both the in-process queue and `flock`
+acquisition. It does not limit the duration of work after acquisition.
 
 The lock file is stable and must not be unlinked/recreated while processes are
 running because `flock` attaches to an inode.
 
 ## Durable operation semantics
+
+When upgrading from schema 1, first stop **all old Python MCP processes** and
+back up the shared state directory while no process holds it open. Restart every
+client with this same code revision. The new process migrates the database
+transactionally; already-running old code cannot enforce the new endpoint
+guard. Do not mix old and new server revisions against the same ledger.
 
 Before the first mutation attempt, the operation is transactionally moved to
 `SENDING` with process ownership metadata. A transport failure proven to occur
@@ -53,12 +63,40 @@ automatically. A dead owner's `SENDING` state is recovered as `UNKNOWN`; a live
 other process is never assumed dead merely because it has not responded to an
 MCP client.
 
+The send claim checks TTL again atomically, including retries after a proven
+pre-send failure. Expiry during an awaited context preflight prevents sending.
+
 After the send boundary, any untrusted/incomplete outcome becomes `UNKNOWN`.
 The same key may call handler reconcile mode only. A second create request is
 forbidden. A different key is forbidden while the plan is bound/unknown/applied.
 Full matching entities may confirm `APPLIED`; partial or changed entities become
 `PARTIAL`/`ENTITY_CONFLICT`; absence after a previously confirmed application
 becomes `UNDONE`, never silent reapplication.
+
+Kernel lock release after a timeout or crash does not prove that Workbench has
+finished the request. Durable endpoint binding therefore blocks **all new
+create requests**, including different plan IDs, while that endpoint has an
+unresolved operation. SQLite schema migration preserves older records; legacy
+unresolved records with no endpoint binding conservatively block every target
+until their history can be reconciled. Do not delete the ledger or switch state
+directories to bypass a block.
+
+No entities observed for an UNKNOWN operation leaves it UNKNOWN and keeps the
+endpoint blocked. The five-tool interface offers no force-reset operation.
+Resolving an outcome that cannot be proven by read-only reconciliation requires
+a separately reviewed operator workflow; absence is never used as permission
+to resend create.
+
+Unresolved here includes `SENDING`, `UNKNOWN`, `PARTIAL`, `ROLLBACK_FAILED`,
+and `ENTITY_CONFLICT`. Absence alone does not turn a partial/failed rollback
+into a verified rollback. Reconciliation also refuses to classify a batch
+while the editor is doing an edit action or restoring Undo/Redo.
+
+Apply error outputs retain the requested plan/operation IDs. For that exact
+binding, `state` reflects the ledger. For a new conflicting invocation,
+`state=PRE_SEND_FAILED` describes that invocation only; `error.details` names
+the existing blocking plan/operation/state, and `unknown_outcome` preserves its
+uncertainty. `details.state_subject` makes this distinction explicit.
 
 ## Residual concurrency
 

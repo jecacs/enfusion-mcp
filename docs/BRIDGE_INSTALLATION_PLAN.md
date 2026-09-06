@@ -77,8 +77,8 @@ resource names or separately authorize a narrowly scoped way to establish them.
 Then a new reviewed source revision must:
 
 1. put the identical exact allowlist and catalog hash in Python and Enforce;
-2. reconcile the public scale contract: either prove a checked editor-source
-   scale write or restrict the public V1 policy to identity scale;
+2. validate the implemented editor-source scale/yaw writes against the live
+   build, including failure cleanup and Undo;
 3. address every finding from `ValidateScripts` and read-only round trips;
 4. deliberately change `MUTATION_IMPLEMENTATION_VALIDATED` only after review;
 5. bump the bridge build ID;

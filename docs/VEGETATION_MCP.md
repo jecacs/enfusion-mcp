@@ -77,20 +77,21 @@ per-point TCP operation.
   invalid terrain, no terrain, Y bounds, normal, slope, spacing, unused, and
   accepted counts.
 - If 1..`count-1` placements survive, planning succeeds with warning
-  `UNDERFILLED`. Zero valid placements returns `NO_VALID_PLACEMENTS` and stores
-  no unusable plan.
+  `UNDERFILLED`. Zero valid placements returns `NO_VALID_PLACEMENTS` with the
+  same `UNDERFILLED` warning and complete rejection statistics, and stores no
+  unusable plan. This diagnostic result has no `plan_id` and cannot be applied.
 
 Palette weights are decimal-quantized to positive integer units and normalized
 over the complete uint32 ticket space. A single multiply-high ticket chooses an
 exact allowlisted resource. Yaw is lower-inclusive/360-exclusive and scale is
 bounded by the requested range.
 
-The pure planner tests the full deterministic scale-range algorithm. The staged
-Checkpoint C handler deliberately has no runtime `IEntity.SetScale` call and
-allows only identity scale. Before a live-capable revision, maintainers must
-either prove and check a `WorldEditorAPI` editor-source write path or constrain
-the public planning policy to identity scale and version the contract. Merely
-enabling the current catalog/gate is not sufficient.
+The staged handler writes yaw and scale through the editor source using checked
+`WorldEditorAPI.SetVariableValue` calls for `angleY` and `scale` inside the single
+entity action, then verifies the observed transform using `GetYawPitchRoll()`.
+Source support is documented in `ENFORCE_BRIDGE.md`; compilation and
+transform/Undo round trips remain unverified in live Workbench. The mutation
+gate remains false.
 
 ## Canonical immutable plan
 
@@ -131,6 +132,11 @@ canonical idempotency UUID and uses that same UUID as `operation_id`. The
 operation is committed as `SENDING`, then exactly one mutation call is made
 under the exclusive target lock.
 
+Before any context request, the service validates the exact palette allowlist,
+weights, and numeric precision as well as the public input schema. Immediately
+before committing SENDING, the ledger atomically checks TTL and unresolved
+operations for the whole endpoint, including different plans.
+
 Any post-send transport/response uncertainty becomes `UNKNOWN`. A repeated
 call with the same plan/key sends only `mode=reconcile`; it never sends create
 again. A different key conflicts. Reconciliation classifies:
@@ -140,8 +146,9 @@ again. A different key conflicts. Reconciliation classifies:
 - `PARTIAL`: some but not all match → `PARTIAL_OPERATION`, create nothing;
 - `CHANGED`: a name exists with differing prefab/layer/transform →
   `ENTITY_CONFLICT`;
-- `NONE`: after confirmed/uncertain application → explicit `UNDONE`; never
-  recreate the old operation.
+- `NONE`: after confirmed application → explicit `UNDONE`; after an uncertain
+  application → remain `UNKNOWN` and keep the target blocked. Never recreate
+  the old operation.
 
 Rollback status is recorded as verified only when every created entity deletion
 and absence check plus action end succeeds. Otherwise state is
