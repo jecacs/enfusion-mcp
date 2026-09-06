@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "enfusion-mcp-rj"
+version = "0.1.0a0"
+description = "Safe, vendor-neutral Python MCP server for Arma Reforger Enfusion Workbench"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Yevhen Koval" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+  "mcp==2.1.1",
+  "pydantic==2.13.5",
+]
+
+[project.scripts]
+enfusion-mcp-rj = "enfusion_mcp_rj.cli:main"
+
+[dependency-groups]
+dev = [
+  "build>=1.2,<2",
+  "hatchling==1.27.0",
+  "mypy>=1.15,<2",
+  "pip-audit>=2.8,<3",
+  "pytest>=9.0.3,<10",
+  "pytest-asyncio>=0.25,<2",
+  "ruff>=0.11,<1",
+  "twine>=6,<7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/enfusion_mcp_rj"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["A", "ASYNC", "B", "C4", "E", "F", "I", "N", "PERF", "PIE", "PL", "RUF", "S", "SIM", "UP", "W"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["PLR2004", "S105", "S106", "S108"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "tests"]
+warn_unreachable = true
